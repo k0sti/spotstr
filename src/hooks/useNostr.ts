@@ -36,10 +36,26 @@ class NostrService {
   }
 
 
-  // Location events
+  // Location events - handle addressable events deduplication
   addLocationEvent(event: LocationEvent) {
     const current = this.locationEvents$.value
-    const updated = [...current, event]
+    
+    // For addressable events (30000-39999), deduplicate by kind, pubkey, and d-tag
+    // Since kind is 30473, we need to check for existing events with same sender and d-tag
+    const addressableKey = `${event.senderNpub}:${event.dTag || ''}`
+    
+    // Remove any existing event with the same addressable key
+    const filtered = current.filter(e => {
+      const existingKey = `${e.senderNpub}:${e.dTag || ''}`
+      return existingKey !== addressableKey
+    })
+    
+    // Add the new event (it replaces any older version)
+    const updated = [...filtered, event]
+    
+    // Sort by created_at descending to show newest first
+    updated.sort((a, b) => b.created_at - a.created_at)
+    
     this.locationEvents$.next(updated)
     this.saveToStorage('locationEvents', updated)
   }
@@ -89,9 +105,6 @@ class NostrService {
           },
           oneose: () => {
             console.log('End of stored events')
-          },
-          onerror: (err) => {
-            console.error('Relay error:', err)
           }
         }
       )
@@ -130,7 +143,7 @@ class NostrService {
       const signedEvent = finalizeEvent(event, secretKey)
 
       // Publish to relays
-      const results = await Promise.allSettled(
+      await Promise.allSettled(
         this.pool.publish(relayUrls, signedEvent)
       )
 
@@ -143,17 +156,25 @@ class NostrService {
   }
 
   private processLocationEvent(event: any) {
-    // Process incoming location event
-    // In production, would decrypt content field
+    // Process incoming location event (NIP-location addressable events)
+    // Kind 30473 is an addressable event, deduplicated by pubkey + d-tag
+    
+    const senderNpub = event.pubkey ? nip19.npubEncode(event.pubkey) : ''
+    const dTag = event.tags?.find((t: any) => t[0] === 'd')?.[1] || ''
+    
+    // Create unique ID based on addressable event properties
+    // For addressable events, the combination of kind:pubkey:d-tag is unique
+    const addressableId = `30473:${event.pubkey}:${dTag}`
+    
     const locationEvent: LocationEvent = {
-      id: crypto.randomUUID(),
+      id: addressableId, // Use addressable ID instead of random UUID
       eventId: event.id,
       created_at: event.created_at,
-      senderNpub: event.pubkey ? nip19.npubEncode(event.pubkey) : '',
+      senderNpub,
       receiverNpub: event.tags?.find((t: any) => t[0] === 'p')?.[1] 
         ? nip19.npubEncode(event.tags.find((t: any) => t[0] === 'p')[1])
         : '',
-      dTag: event.tags?.find((t: any) => t[0] === 'd')?.[1],
+      dTag,
       geohash: 'encrypted', // Would decrypt from content in production
       expiry: event.tags?.find((t: any) => t[0] === 'expiration')?.[1],
     }

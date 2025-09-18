@@ -35,6 +35,7 @@ export function LocationsPage() {
   const [selectedSender, setSelectedSender] = useState('')
   const [selectedReceiver, setSelectedReceiver] = useState('')
   const [continuousUpdate, setContinuousUpdate] = useState(false)
+  const [locationName, setLocationName] = useState('') // d-tag for addressable events
 
   // Filter identities with nsec for sender selection
   const identitiesWithNsec = identities.filter(id => id.nsec)
@@ -94,15 +95,22 @@ export function LocationsPage() {
       return
     }
 
+    // Create addressable event ID based on NIP-01 spec
+    // For addressable events (kind 30473), the d-tag defines uniqueness
+    const dTag = locationName || '' // Empty string for single location per pubkey
+    const senderPubkey = selectedSender // This is npub, would need conversion in real impl
+    const addressableId = `30473:${senderPubkey}:${dTag}`
+    
     const locationEvent = {
-      id: crypto.randomUUID(),
+      id: addressableId, // Use addressable ID format
       eventId: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
       created_at: Math.floor(Date.now() / 1000),
       senderNpub: selectedSender,
       receiverNpub: selectedReceiver,
-      dTag: `location_${Date.now()}`,
+      dTag, // Use the location name as d-tag (or empty for single location)
       geohash,
       expiry: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+      name: locationName || undefined, // Store the name for display
     }
 
     addLocationEvent(locationEvent)
@@ -119,6 +127,7 @@ export function LocationsPage() {
     setSelectedSender('')
     setSelectedReceiver('')
     setContinuousUpdate(false)
+    setLocationName('')
     onClose()
   }
 
@@ -136,6 +145,7 @@ export function LocationsPage() {
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
+            <Th>Name</Th>
             <Th>Geohash</Th>
             <Th>Event ID</Th>
             <Th>Created At</Th>
@@ -146,11 +156,12 @@ export function LocationsPage() {
         <Tbody>
           {locationEvents.map((event) => (
             <Tr key={event.id}>
+              <Td fontSize="xs">{event.name || event.dTag || '(default)'}</Td>
               <Td fontFamily="mono" fontSize="xs">{event.geohash}</Td>
               <Td fontFamily="mono" fontSize="xs">{event.eventId.slice(0, 8)}...</Td>
               <Td fontSize="xs">{formatTimestamp(event.created_at)}</Td>
               <Td fontFamily="mono" fontSize="xs">{event.senderNpub.slice(0, 8)}...</Td>
-              <Td fontFamily="mono" fontSize="xs">{event.receiverNpub.slice(0, 8)}...</Td>
+              <Td fontFamily="mono" fontSize="xs">{event.receiverNpub ? event.receiverNpub.slice(0, 8) + '...' : '(broadcast)'}</Td>
             </Tr>
           ))}
         </Tbody>
@@ -164,6 +175,15 @@ export function LocationsPage() {
           <ModalCloseButton />
           <ModalBody pb={6}>
             <VStack spacing={4} align="stretch">
+              <Input 
+                placeholder="Location name (optional, e.g., 'home', 'office')" 
+                aria-label="Location name"
+                value={locationName}
+                onChange={(e) => setLocationName(e.target.value)}
+              />
+              <Text fontSize="xs" color="gray.500">
+                Leave empty for single location, or name it for multiple locations
+              </Text>
               <Input 
                 placeholder="Geohash" 
                 aria-label="Geohash"

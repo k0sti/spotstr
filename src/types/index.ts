@@ -9,13 +9,13 @@ export interface Identity {
 }
 
 export interface LocationEvent {
-  id: string
-  name?: string
-  eventId: string
+  id: string // For addressable events: "kind:pubkey:d-tag"
+  name?: string // Display name for the location (same as d-tag if provided)
+  eventId: string // Nostr event ID
   created_at: number
   senderNpub: string
   receiverNpub?: string
-  dTag?: string
+  dTag?: string // d-tag for addressable events (empty string for single location)
   geohash: string
   accuracy?: number
   expiry?: number
