@@ -2,7 +2,6 @@ import { ChakraProvider } from '@chakra-ui/react'
 import { useState } from 'react'
 import { IdentitiesPage } from './components/IdentitiesPage'
 import { LocationsPage } from './components/LocationsPage'
-import { ContactsPage } from './components/ContactsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { EventLogPage } from './components/EventLogPage'
 import { MapComponent } from './components/MapComponent'
@@ -14,7 +13,7 @@ import {
   HStack 
 } from '@chakra-ui/react'
 
-type PageType = 'identities' | 'locations' | 'contacts' | 'settings' | 'eventlog'
+type PageType = 'identities' | 'locations' | 'settings' | 'eventlog'
 
 export function App() {
   const [currentPage, setCurrentPage] = useState<PageType>('identities')
@@ -25,8 +24,6 @@ export function App() {
         return <IdentitiesPage />
       case 'locations':
         return <LocationsPage />
-      case 'contacts':
-        return <ContactsPage />
       case 'settings':
         return <SettingsPage />
       case 'eventlog':
@@ -70,13 +67,6 @@ export function App() {
                 size="sm"
                 onClick={() => setCurrentPage('locations')}
                 variant={currentPage === 'locations' ? 'solid' : 'outline'}
-              />
-              <IconButton
-                aria-label="Contacts"
-                icon={<span>👥</span>}
-                size="sm"
-                onClick={() => setCurrentPage('contacts')}
-                variant={currentPage === 'contacts' ? 'solid' : 'outline'}
               />
               <IconButton
                 aria-label="Settings"

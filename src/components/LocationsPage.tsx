@@ -29,12 +29,15 @@ import { generateGeohash } from '../utils/crypto'
 
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
-  const { identities, contacts, locationEvents, addLocationEvent } = useNostr()
+  const { identities, locationEvents, addLocationEvent } = useNostr()
   const toast = useToast()
   const [geohash, setGeohash] = useState('')
   const [selectedSender, setSelectedSender] = useState('')
   const [selectedReceiver, setSelectedReceiver] = useState('')
   const [continuousUpdate, setContinuousUpdate] = useState(false)
+
+  // Filter identities with nsec for sender selection
+  const identitiesWithNsec = identities.filter(id => id.nsec)
 
   const queryDeviceLocation = async () => {
     if (!navigator.geolocation) {
@@ -177,12 +180,12 @@ export function LocationsPage() {
                 Continuous update
               </Checkbox>
               <Select 
-                placeholder="Select Sender" 
+                placeholder="Select Sender (with keys)" 
                 aria-label="Sender"
                 value={selectedSender}
                 onChange={(e) => setSelectedSender(e.target.value)}
               >
-                {identities.map((identity) => (
+                {identitiesWithNsec.map((identity) => (
                   <option key={identity.id} value={identity.npub}>
                     {identity.name || 'Unnamed'} ({identity.npub.slice(0, 8)}...)
                   </option>
@@ -194,9 +197,9 @@ export function LocationsPage() {
                 value={selectedReceiver}
                 onChange={(e) => setSelectedReceiver(e.target.value)}
               >
-                {contacts.map((contact) => (
-                  <option key={contact.id} value={contact.npub}>
-                    {contact.name || 'Unnamed'} ({contact.npub.slice(0, 8)}...)
+                {identities.map((identity) => (
+                  <option key={identity.id} value={identity.npub}>
+                    {identity.name || 'Unnamed'} ({identity.npub.slice(0, 8)}...)
                   </option>
                 ))}
               </Select>

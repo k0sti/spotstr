@@ -3,12 +3,11 @@ import { Observable, BehaviorSubject } from 'rxjs'
 import { SimplePool } from 'nostr-tools/pool'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import * as nip19 from 'nostr-tools/nip19'
-import { LocationEvent, Identity, Contact } from '../types'
+import { LocationEvent, Identity } from '../types'
 
 class NostrService {
   private pool = new SimplePool()
   private identities$ = new BehaviorSubject<Identity[]>([])
-  private contacts$ = new BehaviorSubject<Contact[]>([])
   private locationEvents$ = new BehaviorSubject<LocationEvent[]>([])
   private activeSubscriptions = new Map<string, any>()
 
@@ -36,24 +35,6 @@ class NostrService {
     return this.identities$.asObservable()
   }
 
-  // Contact management
-  addContact(contact: Contact) {
-    const current = this.contacts$.value
-    const updated = [...current, contact]
-    this.contacts$.next(updated)
-    this.saveToStorage('contacts', updated)
-  }
-
-  removeContact(id: string) {
-    const current = this.contacts$.value
-    const updated = current.filter(c => c.id !== id)
-    this.contacts$.next(updated)
-    this.saveToStorage('contacts', updated)
-  }
-
-  getContacts(): Observable<Contact[]> {
-    return this.contacts$.asObservable()
-  }
 
   // Location events
   addLocationEvent(event: LocationEvent) {
@@ -75,11 +56,9 @@ class NostrService {
   private loadFromStorage() {
     try {
       const identities = JSON.parse(localStorage.getItem('spotstr_identities') || '[]')
-      const contacts = JSON.parse(localStorage.getItem('spotstr_contacts') || '[]')
       const locationEvents = JSON.parse(localStorage.getItem('spotstr_locationEvents') || '[]')
       
       this.identities$.next(identities)
-      this.contacts$.next(contacts)
       this.locationEvents$.next(locationEvents)
     } catch (error) {
       console.error('Error loading from storage:', error)
@@ -196,29 +175,23 @@ const nostrService = new NostrService()
 
 export function useNostr() {
   const [identities, setIdentities] = useState<Identity[]>([])
-  const [contacts, setContacts] = useState<Contact[]>([])
   const [locationEvents, setLocationEvents] = useState<LocationEvent[]>([])
 
   useEffect(() => {
     const identitiesSub = nostrService.getIdentities().subscribe(setIdentities)
-    const contactsSub = nostrService.getContacts().subscribe(setContacts)
     const locationEventsSub = nostrService.getLocationEvents().subscribe(setLocationEvents)
 
     return () => {
       identitiesSub.unsubscribe()
-      contactsSub.unsubscribe()
       locationEventsSub.unsubscribe()
     }
   }, [])
 
   return {
     identities,
-    contacts,
     locationEvents,
     addIdentity: (identity: Identity) => nostrService.addIdentity(identity),
     removeIdentity: (id: string) => nostrService.removeIdentity(id),
-    addContact: (contact: Contact) => nostrService.addContact(contact),
-    removeContact: (id: string) => nostrService.removeContact(id),
     addLocationEvent: (event: LocationEvent) => nostrService.addLocationEvent(event),
     connectToRelay: (url: string) => nostrService.connectToRelay(url),
     publishLocationEvent: (event: any, relayUrls: string[]) => nostrService.publishLocationEvent(event, relayUrls),

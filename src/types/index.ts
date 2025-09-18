@@ -2,19 +2,10 @@
 export interface Identity {
   id: string
   name?: string
-  source: 'created' | 'pasted' | 'signer'
+  source: 'created' | 'npub' | 'nsec' | 'extension'
   npub: string
   nsec?: string
   created_at: number
-}
-
-export interface Contact {
-  id: string
-  name?: string
-  source: 'generated' | 'pasted'
-  npub: string
-  displayName?: string
-  picture?: string
 }
 
 export interface LocationEvent {
@@ -34,4 +25,4 @@ export interface Settings {
   locationRelay: string
 }
 
-export type PageType = 'identities' | 'locations' | 'contacts' | 'settings' | 'eventlog'
+export type PageType = 'identities' | 'locations' | 'settings' | 'eventlog'

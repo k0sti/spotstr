@@ -25,14 +25,14 @@ import {
   Tooltip
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
-import { generateNostrKeyPair, validateNsec, deriveNpubFromNsec } from '../utils/crypto'
+import { generateNostrKeyPair, validateNsec, validateNpub, deriveNpubFromNsec } from '../utils/crypto'
 import { Identity } from '../types'
 
 export function IdentitiesPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { identities, addIdentity, removeIdentity } = useNostr()
   const toast = useToast()
-  const [nsecInput, setNsecInput] = useState('')
+  const [keyInput, setKeyInput] = useState('')
   const [nameInput, setNameInput] = useState('')
 
   const handleGenerateKeys = async () => {
@@ -67,47 +67,69 @@ export function IdentitiesPage() {
     }
   }
 
-  const handlePasteNsec = () => {
-    if (!validateNsec(nsecInput)) {
+  const handleImportKey = () => {
+    const trimmedKey = keyInput.trim()
+    
+    // Check if it's an nsec
+    if (validateNsec(trimmedKey)) {
+      // Derive npub from nsec
+      const npub = deriveNpubFromNsec(trimmedKey)
+      if (!npub) {
+        toast({
+          title: 'Error',
+          description: 'Failed to derive public key from nsec',
+          status: 'error',
+          duration: 3000,
+        })
+        return
+      }
+
+      const identity: Identity = {
+        id: crypto.randomUUID(),
+        name: nameInput || 'Imported Identity',
+        source: 'nsec',
+        npub: npub,
+        nsec: trimmedKey,
+        created_at: Math.floor(Date.now() / 1000),
+      }
+
+      addIdentity(identity)
       toast({
-        title: 'Invalid nsec',
-        description: 'Please enter a valid nsec key',
+        title: 'Identity imported',
+        description: 'Identity imported from nsec successfully',
+        status: 'success',
+        duration: 3000,
+      })
+    } 
+    // Check if it's an npub
+    else if (validateNpub(trimmedKey)) {
+      const identity: Identity = {
+        id: crypto.randomUUID(),
+        name: nameInput || 'Watch-only Identity',
+        source: 'npub',
+        npub: trimmedKey,
+        // No nsec for npub-only imports
+        created_at: Math.floor(Date.now() / 1000),
+      }
+
+      addIdentity(identity)
+      toast({
+        title: 'Identity imported',
+        description: 'Watch-only identity imported from npub',
+        status: 'success',
+        duration: 3000,
+      })
+    } else {
+      toast({
+        title: 'Invalid key',
+        description: 'Please enter a valid nsec or npub key',
         status: 'error',
         duration: 3000,
       })
       return
     }
 
-    // Derive npub from nsec using nostr-tools
-    const npub = deriveNpubFromNsec(nsecInput)
-    if (!npub) {
-      toast({
-        title: 'Error',
-        description: 'Failed to derive public key from nsec',
-        status: 'error',
-        duration: 3000,
-      })
-      return
-    }
-
-    const identity: Identity = {
-      id: crypto.randomUUID(),
-      name: nameInput || 'Imported Identity',
-      source: 'pasted',
-      npub: npub,
-      nsec: nsecInput,
-      created_at: Math.floor(Date.now() / 1000),
-    }
-
-    addIdentity(identity)
-    toast({
-      title: 'Identity imported',
-      description: 'Identity imported successfully',
-      status: 'success',
-      duration: 3000,
-    })
-
-    setNsecInput('')
+    setKeyInput('')
     setNameInput('')
     onClose()
   }
@@ -139,6 +161,16 @@ export function IdentitiesPage() {
     }
   }
 
+  const getSourceBadgeColor = (source: string) => {
+    switch (source) {
+      case 'created': return 'green'
+      case 'nsec': return 'blue'
+      case 'npub': return 'purple'
+      case 'extension': return 'orange'
+      default: return 'gray'
+    }
+  }
+
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
@@ -160,10 +192,7 @@ export function IdentitiesPage() {
             <Tr key={identity.id}>
               <Td>{identity.name || 'Unnamed'}</Td>
               <Td>
-                <Badge colorScheme={
-                  identity.source === 'created' ? 'green' :
-                  identity.source === 'pasted' ? 'blue' : 'purple'
-                }>
+                <Badge colorScheme={getSourceBadgeColor(identity.source)}>
                   {identity.source}
                 </Badge>
               </Td>
@@ -225,19 +254,26 @@ export function IdentitiesPage() {
                 Generate New Keys
               </Button>
               
+              <Text fontSize="sm" color="gray.600" textAlign="center">
+                — OR —
+              </Text>
+              
               <VStack spacing={2}>
                 <Input 
-                  placeholder="Paste existing nsec" 
-                  aria-label="Paste nsec"
-                  value={nsecInput}
-                  onChange={(e) => setNsecInput(e.target.value)}
+                  placeholder="Paste npub or nsec" 
+                  aria-label="Paste key"
+                  value={keyInput}
+                  onChange={(e) => setKeyInput(e.target.value)}
+                  fontFamily="mono"
+                  fontSize="sm"
                 />
                 <Button 
-                  onClick={handlePasteNsec} 
-                  disabled={!nsecInput}
+                  onClick={handleImportKey} 
+                  disabled={!keyInput}
                   size="sm"
+                  colorScheme="blue"
                 >
-                  Import nsec
+                  Import Key
                 </Button>
               </VStack>
               
