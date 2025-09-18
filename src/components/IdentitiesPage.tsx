@@ -25,7 +25,7 @@ import {
   Tooltip
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
-import { generateNostrKeyPair, validateNsec } from '../utils/crypto'
+import { generateNostrKeyPair, validateNsec, deriveNpubFromNsec } from '../utils/crypto'
 import { Identity } from '../types'
 
 export function IdentitiesPage() {
@@ -78,12 +78,23 @@ export function IdentitiesPage() {
       return
     }
 
-    // Would derive npub from nsec in production
+    // Derive npub from nsec using nostr-tools
+    const npub = deriveNpubFromNsec(nsecInput)
+    if (!npub) {
+      toast({
+        title: 'Error',
+        description: 'Failed to derive public key from nsec',
+        status: 'error',
+        duration: 3000,
+      })
+      return
+    }
+
     const identity: Identity = {
       id: crypto.randomUUID(),
       name: nameInput || 'Imported Identity',
       source: 'pasted',
-      npub: `npub1${nsecInput.slice(5)}`, // Simplified
+      npub: npub,
       nsec: nsecInput,
       created_at: Math.floor(Date.now() / 1000),
     }
