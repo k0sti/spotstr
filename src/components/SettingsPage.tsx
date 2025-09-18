@@ -5,11 +5,10 @@ import { useNostr } from '../hooks/useNostr'
 const DEFAULT_RELAY = 'https://precision.bilberry-tetra.ts.net/relay'
 
 export function SettingsPage() {
-  const { connectToRelay } = useNostr()
+  const { connectToRelay, disconnectRelay, isRelayConnected } = useNostr()
   const toast = useToast()
   const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY)
   const [isConnecting, setIsConnecting] = useState(false)
-  const [isConnected, setIsConnected] = useState(false)
 
   useEffect(() => {
     // Load saved relay URL from localStorage
@@ -18,6 +17,9 @@ export function SettingsPage() {
       setRelayUrl(saved)
     }
   }, [])
+  
+  // Get connection status from shared state
+  const isConnected = isRelayConnected(relayUrl)
 
   const handleConnect = async () => {
     if (!relayUrl) {
@@ -33,8 +35,6 @@ export function SettingsPage() {
     setIsConnecting(true)
     try {
       await connectToRelay(relayUrl)
-      localStorage.setItem('spotstr_relayUrl', relayUrl)
-      setIsConnected(true)
       toast({
         title: 'Connected',
         description: `Successfully connected to ${relayUrl}`,
@@ -48,14 +48,13 @@ export function SettingsPage() {
         status: 'error',
         duration: 3000,
       })
-      setIsConnected(false)
     } finally {
       setIsConnecting(false)
     }
   }
 
   const handleDisconnect = () => {
-    setIsConnected(false)
+    disconnectRelay(relayUrl)
     toast({
       title: 'Disconnected',
       description: 'Disconnected from relay',

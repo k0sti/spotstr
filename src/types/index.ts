@@ -14,11 +14,13 @@ export interface LocationEvent {
   eventId: string // Nostr event ID
   created_at: number
   senderNpub: string
+  senderPubkey?: string // Store raw pubkey for decryption
   receiverNpub?: string
   dTag?: string // d-tag for addressable events (empty string for single location)
   geohash: string
   accuracy?: number
   expiry?: number
+  encryptedContent?: string // Store encrypted content for later decryption
 }
 
 export interface Settings {

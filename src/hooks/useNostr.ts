@@ -12,18 +12,27 @@ class NostrService {
   private identities$ = new BehaviorSubject<Identity[]>([])
   private locationEvents$ = new BehaviorSubject<LocationEvent[]>([])
   private activeSubscriptions = new Map<string, any>()
+  private connectedRelays$ = new BehaviorSubject<string[]>([])
+  private relayStatus$ = new BehaviorSubject<Map<string, boolean>>(new Map())
 
   constructor() {
     // Load from localStorage on init
     this.loadFromStorage()
+    // Auto-connect to saved relay
+    this.autoConnectToSavedRelay()
   }
 
   // Identity management
-  addIdentity(identity: Identity) {
+  async addIdentity(identity: Identity) {
     const current = this.identities$.value
     const updated = [...current, identity]
     this.identities$.next(updated)
     this.saveToStorage('identities', updated)
+    
+    // Check if any existing encrypted locations can now be decrypted
+    if (identity.nsec) {
+      await this.decryptExistingLocationsForIdentity(identity)
+    }
   }
 
   removeIdentity(id: string) {
@@ -68,6 +77,18 @@ class NostrService {
   getLocationEvents(): Observable<LocationEvent[]> {
     return this.locationEvents$.asObservable()
   }
+  
+  getConnectedRelays(): Observable<string[]> {
+    return this.connectedRelays$.asObservable()
+  }
+  
+  getRelayStatus(): Observable<Map<string, boolean>> {
+    return this.relayStatus$.asObservable()
+  }
+  
+  isRelayConnected(relayUrl: string): boolean {
+    return this.relayStatus$.value.get(relayUrl) || false
+  }
 
   // Storage helpers
   private saveToStorage(key: string, data: any) {
@@ -81,6 +102,11 @@ class NostrService {
       
       this.identities$.next(identities)
       this.locationEvents$.next(locationEvents)
+      
+      // Update map service with loaded locations
+      if (locationEvents.length > 0) {
+        mapService.updateLocations(locationEvents)
+      }
     } catch (error) {
       console.error('Error loading from storage:', error)
     }
@@ -115,9 +141,27 @@ class NostrService {
       )
 
       this.activeSubscriptions.set(relayUrl, sub)
+      
+      // Update connection status
+      const currentStatus = new Map(this.relayStatus$.value)
+      currentStatus.set(relayUrl, true)
+      this.relayStatus$.next(currentStatus)
+      
+      const connected = Array.from(currentStatus.entries())
+        .filter(([_, status]) => status)
+        .map(([url, _]) => url)
+      this.connectedRelays$.next(connected)
+      
+      // Save the relay URL for auto-connect
+      localStorage.setItem('spotstr_relayUrl', relayUrl)
+      
       return sub
     } catch (error) {
       console.error('Failed to connect to relay:', error)
+      // Update status to disconnected on error
+      const currentStatus = new Map(this.relayStatus$.value)
+      currentStatus.set(relayUrl, false)
+      this.relayStatus$.next(currentStatus)
       throw error
     }
   }
@@ -231,12 +275,14 @@ class NostrService {
       eventId: event.id,
       created_at: event.created_at,
       senderNpub,
+      senderPubkey: event.pubkey, // Store raw pubkey for decryption
       receiverNpub: recipientNpub,
       dTag,
       geohash: decryptedGeohash,
       accuracy,
       expiry: event.tags?.find((t: any) => t[0] === 'expiration')?.[1],
       name: dTag || undefined,
+      encryptedContent: decryptedGeohash === 'encrypted' ? event.content : undefined, // Store encrypted content
     }
     
     this.addLocationEvent(locationEvent)
@@ -245,13 +291,152 @@ class NostrService {
     mapService.updateLocations(this.locationEvents$.value)
   }
 
-  // Disconnect from relays
+  // Disconnect from specific relay
+  disconnectRelay(relayUrl: string) {
+    const sub = this.activeSubscriptions.get(relayUrl)
+    if (sub) {
+      sub.close()
+      this.activeSubscriptions.delete(relayUrl)
+      
+      // Update connection status
+      const currentStatus = new Map(this.relayStatus$.value)
+      currentStatus.set(relayUrl, false)
+      this.relayStatus$.next(currentStatus)
+      
+      const connected = Array.from(currentStatus.entries())
+        .filter(([_, status]) => status)
+        .map(([url, _]) => url)
+      this.connectedRelays$.next(connected)
+      
+      console.log(`Disconnected from ${relayUrl}`)
+    }
+  }
+  
+  // Disconnect from all relays
   disconnectAll() {
     this.activeSubscriptions.forEach((sub, url) => {
       sub.close()
       console.log(`Disconnected from ${url}`)
     })
     this.activeSubscriptions.clear()
+    this.relayStatus$.next(new Map())
+    this.connectedRelays$.next([])
+  }
+  
+  // Auto-connect to saved relay on startup
+  private async autoConnectToSavedRelay() {
+    const savedRelayUrl = localStorage.getItem('spotstr_relayUrl')
+    if (savedRelayUrl) {
+      try {
+        await this.connectToRelay(savedRelayUrl)
+        console.log('Auto-connected to saved relay:', savedRelayUrl)
+      } catch (error) {
+        console.error('Failed to auto-connect to saved relay:', error)
+      }
+    }
+  }
+  
+  // Decrypt existing encrypted locations for a newly added identity
+  private async decryptExistingLocationsForIdentity(identity: Identity) {
+    if (!identity.nsec) return
+    
+    try {
+      const decoded = nip19.decode(identity.nsec)
+      if (decoded.type !== 'nsec') return
+      
+      const secretKey = decoded.data as Uint8Array
+      const publicKey = getPublicKey(secretKey)
+      
+      // Get all current location events
+      const currentLocations = this.locationEvents$.value
+      let hasUpdates = false
+      
+      // Check each location to see if it needs decryption
+      const updatedLocations = await Promise.all(
+        currentLocations.map(async (location) => {
+          // Skip if already decrypted or no encrypted content
+          if (location.geohash !== 'encrypted' || !location.encryptedContent) {
+            return location
+          }
+          
+          // Check if this location is for the new identity
+          const recipientPubkey = location.receiverNpub ? 
+            this.npubToHex(location.receiverNpub) : null
+            
+          if (recipientPubkey !== publicKey) return location
+          
+          // Try to decrypt the location
+          try {
+            if (location.senderPubkey && location.encryptedContent) {
+              const conversationKey = nip44.v2.utils.getConversationKey(
+                secretKey,
+                location.senderPubkey
+              )
+              
+              const decryptedContent = nip44.v2.decrypt(
+                location.encryptedContent,
+                conversationKey
+              )
+              
+              // Parse the decrypted JSON array of tags
+              const contentTags = JSON.parse(decryptedContent) as Array<[string, string]>
+              const gTag = contentTags.find(t => t[0] === 'g')
+              const accuracyTag = contentTags.find(t => t[0] === 'accuracy')
+              
+              if (gTag && gTag[1]) {
+                console.log('Decrypted existing location:', location.id, 'geohash:', gTag[1])
+                hasUpdates = true
+                
+                return {
+                  ...location,
+                  geohash: gTag[1],
+                  accuracy: accuracyTag ? parseInt(accuracyTag[1]) : location.accuracy
+                }
+              }
+            }
+            return location
+          } catch (error) {
+            console.error('Failed to decrypt location:', error)
+            return location
+          }
+        })
+      )
+      
+      if (hasUpdates) {
+        // Update the location events with decrypted data
+        this.locationEvents$.next(updatedLocations)
+        this.saveToStorage('locationEvents', updatedLocations)
+        
+        // Update map service with newly decrypted locations
+        mapService.updateLocations(updatedLocations)
+        
+        console.log('Updated locations with decrypted data')
+      }
+    } catch (error) {
+      console.error('Error decrypting locations for new identity:', error)
+    }
+  }
+  
+  // Clear all location events
+  clearAllLocations() {
+    this.locationEvents$.next([])
+    this.saveToStorage('locationEvents', [])
+    
+    // Clear locations from map service
+    mapService.updateLocations([])
+    
+    console.log('Cleared all location events')
+  }
+  
+  // Helper to convert npub to hex
+  private npubToHex(npub: string): string | null {
+    try {
+      const decoded = nip19.decode(npub)
+      if (decoded.type === 'npub') {
+        return decoded.data as string
+      }
+    } catch {}
+    return null
   }
 }
 
@@ -260,25 +445,36 @@ const nostrService = new NostrService()
 export function useNostr() {
   const [identities, setIdentities] = useState<Identity[]>([])
   const [locationEvents, setLocationEvents] = useState<LocationEvent[]>([])
+  const [connectedRelays, setConnectedRelays] = useState<string[]>([])
+  const [relayStatus, setRelayStatus] = useState<Map<string, boolean>>(new Map())
 
   useEffect(() => {
     const identitiesSub = nostrService.getIdentities().subscribe(setIdentities)
     const locationEventsSub = nostrService.getLocationEvents().subscribe(setLocationEvents)
+    const connectedRelaysSub = nostrService.getConnectedRelays().subscribe(setConnectedRelays)
+    const relayStatusSub = nostrService.getRelayStatus().subscribe(setRelayStatus)
 
     return () => {
       identitiesSub.unsubscribe()
       locationEventsSub.unsubscribe()
+      connectedRelaysSub.unsubscribe()
+      relayStatusSub.unsubscribe()
     }
   }, [])
 
   return {
     identities,
     locationEvents,
+    connectedRelays,
+    relayStatus,
     addIdentity: (identity: Identity) => nostrService.addIdentity(identity),
     removeIdentity: (id: string) => nostrService.removeIdentity(id),
     addLocationEvent: (event: LocationEvent) => nostrService.addLocationEvent(event),
     connectToRelay: (url: string) => nostrService.connectToRelay(url),
+    disconnectRelay: (url: string) => nostrService.disconnectRelay(url),
+    isRelayConnected: (url: string) => nostrService.isRelayConnected(url),
     publishLocationEvent: (event: any, relayUrls: string[]) => nostrService.publishLocationEvent(event, relayUrls),
     disconnectAll: () => nostrService.disconnectAll(),
+    clearAllLocations: () => nostrService.clearAllLocations(),
   }
 }

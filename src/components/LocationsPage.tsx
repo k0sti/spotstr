@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { 
   Box, 
   Button, 
@@ -22,7 +22,15 @@ import {
   Text,
   useDisclosure,
   useToast,
-  Checkbox
+  Checkbox,
+  IconButton,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
+  AlertDialogCloseButton
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 import { generateGeohash } from '../utils/crypto'
@@ -30,13 +38,16 @@ import { mapService } from '../services/mapService'
 
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
-  const { identities, locationEvents, addLocationEvent } = useNostr()
+  const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
+  const { identities, locationEvents, addLocationEvent, clearAllLocations } = useNostr()
   const toast = useToast()
+  const cancelRef = useRef(null)
   const [geohash, setGeohash] = useState('')
   const [selectedSender, setSelectedSender] = useState('')
   const [selectedReceiver, setSelectedReceiver] = useState('')
   const [continuousUpdate, setContinuousUpdate] = useState(false)
   const [locationName, setLocationName] = useState('') // d-tag for addressable events
+  const [accuracy, setAccuracy] = useState<number>(100) // Default 100m accuracy
 
   // Filter identities with nsec for sender selection
   const identitiesWithNsec = identities.filter(id => id.nsec)
@@ -110,6 +121,7 @@ export function LocationsPage() {
       receiverNpub: selectedReceiver,
       dTag, // Use the location name as d-tag (or empty for single location)
       geohash,
+      accuracy: accuracy > 0 ? accuracy : undefined, // Include accuracy if provided
       expiry: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
       name: locationName || undefined, // Store the name for display
     }
@@ -129,6 +141,7 @@ export function LocationsPage() {
     setSelectedReceiver('')
     setContinuousUpdate(false)
     setLocationName('')
+    setAccuracy(100)
     onClose()
   }
 
@@ -140,7 +153,18 @@ export function LocationsPage() {
     <Box>
       <HStack justify="space-between" mb={4}>
         <Text fontSize="lg" fontWeight="bold" color="gray.800">Locations</Text>
-        <Button onClick={onOpen} size="sm" colorScheme="blue">Create New +</Button>
+        <HStack spacing={2}>
+          <Button onClick={onOpen} size="sm" colorScheme="blue">Create New +</Button>
+          <IconButton
+            aria-label="Clear all locations"
+            icon={<span>🗑️</span>}
+            size="sm"
+            colorScheme="red"
+            variant="outline"
+            onClick={onResetOpen}
+            isDisabled={locationEvents.length === 0}
+          />
+        </HStack>
       </HStack>
 
       <Table size="sm" variant="simple">
@@ -222,6 +246,13 @@ export function LocationsPage() {
               >
                 Continuous update
               </Checkbox>
+              <Input 
+                type="number"
+                placeholder="Accuracy (meters)" 
+                aria-label="Accuracy"
+                value={accuracy || ''}
+                onChange={(e) => setAccuracy(parseInt(e.target.value) || 0)}
+              />
               <Select 
                 placeholder="Select Sender (with keys)" 
                 aria-label="Sender"
@@ -256,6 +287,53 @@ export function LocationsPage() {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      {/* Reset Confirmation Dialog */}
+      <AlertDialog
+        isOpen={isResetOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onResetClose}
+        isCentered
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Clear All Locations
+            </AlertDialogHeader>
+            <AlertDialogCloseButton />
+
+            <AlertDialogBody>
+              <Text>Are you sure you want to clear all location events?</Text>
+              <Text fontSize="sm" color="gray.600" mt={2}>
+                This will remove {locationEvents.length} location{locationEvents.length !== 1 ? 's' : ''} from your local storage.
+                This action cannot be undone.
+              </Text>
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onResetClose}>
+                Cancel
+              </Button>
+              <Button 
+                colorScheme="red" 
+                onClick={() => {
+                  clearAllLocations()
+                  toast({
+                    title: 'Locations cleared',
+                    description: 'All location events have been removed',
+                    status: 'success',
+                    duration: 3000,
+                  })
+                  onResetClose()
+                }} 
+                ml={3}
+              >
+                Clear All
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Box>
   )
 }

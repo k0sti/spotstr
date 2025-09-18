@@ -3,6 +3,27 @@ import { Box } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 
+// Import Leaflet CSS
+import 'leaflet/dist/leaflet.css'
+
+// Create a custom marker icon using a data URL to avoid build issues
+const customIcon = L.divIcon({
+  html: `
+    <div style="
+      background: #2563eb;
+      border: 2px solid white;
+      border-radius: 50%;
+      width: 12px;
+      height: 12px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    "></div>
+  `,
+  className: 'custom-marker',
+  iconSize: [12, 12],
+  iconAnchor: [6, 6],
+  popupAnchor: [0, -6]
+})
+
 export function MapComponent() {
   const mapRef = useRef<L.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
@@ -60,12 +81,15 @@ export function MapComponent() {
   useEffect(() => {
     if (!mapRef.current) return
 
-    // Clear existing rectangles and markers
+    // Clear existing rectangles, markers, and circles
     rectanglesRef.current.forEach(rect => {
       rect.remove()
-      // Also remove the associated marker
+      // Also remove the associated marker and accuracy circle
       if ((rect as any)._associatedMarker) {
         (rect as any)._associatedMarker.remove()
+      }
+      if ((rect as any)._associatedCircle) {
+        (rect as any)._associatedCircle.remove()
       }
     })
     rectanglesRef.current.clear()
@@ -87,8 +111,8 @@ export function MapComponent() {
       })
         .addTo(mapRef.current!)
 
-      // Add marker at the center of the location
-      const marker = L.marker([location.lat, location.lng])
+      // Add marker at the center of the location with custom icon
+      const marker = L.marker([location.lat, location.lng], { icon: customIcon })
         .addTo(mapRef.current!)
         .bindPopup(`
           <div>
@@ -99,11 +123,28 @@ export function MapComponent() {
           </div>
         `)
 
+      // Add accuracy circle if accuracy is available
+      let accuracyCircle = null
+      if (location.event.accuracy && location.event.accuracy > 0) {
+        accuracyCircle = L.circle([location.lat, location.lng], {
+          radius: location.event.accuracy, // radius in meters
+          color: '#3b82f6', // blue-500
+          weight: 1,
+          opacity: 0.6,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.1
+        }).addTo(mapRef.current!)
+        
+      }
+
       // Store rectangle reference for highlighting
       rectanglesRef.current.set(location.id, rectangle)
       
-      // Store marker with rectangle so they're removed together
+      // Store marker and accuracy circle with rectangle so they're removed together
       ;(rectangle as any)._associatedMarker = marker
+      if (accuracyCircle) {
+        ;(rectangle as any)._associatedCircle = accuracyCircle
+      }
     })
   }, [locations])
 
