@@ -22,6 +22,13 @@ class NostrService {
     this.saveToStorage('identities', updated)
   }
 
+  removeIdentity(id: string) {
+    const current = this.identities$.value
+    const updated = current.filter(i => i.id !== id)
+    this.identities$.next(updated)
+    this.saveToStorage('identities', updated)
+  }
+
   getIdentities(): Observable<Identity[]> {
     return this.identities$.asObservable()
   }
@@ -30,6 +37,13 @@ class NostrService {
   addContact(contact: Contact) {
     const current = this.contacts$.value
     const updated = [...current, contact]
+    this.contacts$.next(updated)
+    this.saveToStorage('contacts', updated)
+  }
+
+  removeContact(id: string) {
+    const current = this.contacts$.value
+    const updated = current.filter(c => c.id !== id)
     this.contacts$.next(updated)
     this.saveToStorage('contacts', updated)
   }
@@ -134,7 +148,9 @@ export function useNostr() {
     contacts,
     locationEvents,
     addIdentity: (identity: Identity) => nostrService.addIdentity(identity),
+    removeIdentity: (id: string) => nostrService.removeIdentity(id),
     addContact: (contact: Contact) => nostrService.addContact(contact),
+    removeContact: (id: string) => nostrService.removeContact(id),
     addLocationEvent: (event: LocationEvent) => nostrService.addLocationEvent(event),
     connectToRelay: (url: string) => nostrService.connectToRelay(url),
   }

@@ -30,7 +30,7 @@ import { Identity } from '../types'
 
 export function IdentitiesPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
-  const { identities, addIdentity } = useNostr()
+  const { identities, addIdentity, removeIdentity } = useNostr()
   const toast = useToast()
   const [nsecInput, setNsecInput] = useState('')
   const [nameInput, setNameInput] = useState('')
@@ -99,6 +99,16 @@ export function IdentitiesPage() {
     setNsecInput('')
     setNameInput('')
     onClose()
+  }
+
+  const handleDeleteIdentity = (id: string, name: string) => {
+    removeIdentity(id)
+    toast({
+      title: 'Identity removed',
+      description: `${name || 'Unnamed'} identity has been deleted`,
+      status: 'info',
+      duration: 3000,
+    })
   }
 
   const copyToClipboard = async (text: string, type: string) => {
@@ -178,6 +188,7 @@ export function IdentitiesPage() {
                   icon={<span>🗑️</span>}
                   colorScheme="red"
                   variant="ghost"
+                  onClick={() => handleDeleteIdentity(identity.id, identity.name)}
                 />
               </Td>
             </Tr>

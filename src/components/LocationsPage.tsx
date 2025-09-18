@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { 
   Box, 
   Button, 
@@ -6,32 +7,133 @@ import {
   Tbody, 
   Tr, 
   Th, 
+  Td,
   Modal, 
   ModalOverlay, 
   ModalContent, 
   ModalHeader, 
   ModalBody, 
   ModalCloseButton,
+  ModalFooter,
   VStack,
+  HStack,
   Input,
   Select,
   Text,
-  useDisclosure
+  useDisclosure,
+  useToast,
+  Checkbox
 } from '@chakra-ui/react'
+import { useNostr } from '../hooks/useNostr'
+import { generateGeohash } from '../utils/crypto'
 
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
+  const { identities, contacts, locationEvents, addLocationEvent } = useNostr()
+  const toast = useToast()
+  const [geohash, setGeohash] = useState('')
+  const [selectedSender, setSelectedSender] = useState('')
+  const [selectedReceiver, setSelectedReceiver] = useState('')
+  const [continuousUpdate, setContinuousUpdate] = useState(false)
+
+  const queryDeviceLocation = async () => {
+    if (!navigator.geolocation) {
+      toast({
+        title: 'Location not supported',
+        description: 'Your browser does not support geolocation',
+        status: 'error',
+        duration: 3000,
+      })
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords
+        const hash = generateGeohash(latitude, longitude)
+        setGeohash(hash)
+        toast({
+          title: 'Location obtained',
+          description: `Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`,
+          status: 'success',
+          duration: 3000,
+        })
+      },
+      (error) => {
+        toast({
+          title: 'Location error',
+          description: error.message,
+          status: 'error',
+          duration: 3000,
+        })
+      }
+    )
+  }
+
+  const handleCreateLocation = () => {
+    if (!geohash) {
+      toast({
+        title: 'Geohash required',
+        description: 'Please enter a geohash or query device location',
+        status: 'warning',
+        duration: 3000,
+      })
+      return
+    }
+
+    if (!selectedSender || !selectedReceiver) {
+      toast({
+        title: 'Missing information',
+        description: 'Please select both sender and receiver',
+        status: 'warning',
+        duration: 3000,
+      })
+      return
+    }
+
+    const locationEvent = {
+      id: crypto.randomUUID(),
+      eventId: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
+      created_at: Math.floor(Date.now() / 1000),
+      senderNpub: selectedSender,
+      receiverNpub: selectedReceiver,
+      dTag: `location_${Date.now()}`,
+      geohash,
+      expiry: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+    }
+
+    addLocationEvent(locationEvent)
+    
+    toast({
+      title: 'Location created',
+      description: 'Location event has been created',
+      status: 'success',
+      duration: 3000,
+    })
+
+    // Reset form
+    setGeohash('')
+    setSelectedSender('')
+    setSelectedReceiver('')
+    setContinuousUpdate(false)
+    onClose()
+  }
+
+  const formatTimestamp = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleString()
+  }
 
   return (
     <Box>
-      <Box mb={4}>
-        <Button onClick={onOpen} size="sm">Create New +</Button>
-      </Box>
+      <HStack justify="space-between" mb={4}>
+        <Text fontSize="lg" fontWeight="bold" color="gray.800">Locations</Text>
+        <Button onClick={onOpen} size="sm" colorScheme="blue">Create New +</Button>
+      </HStack>
 
-      <Table size="sm">
+      <Table size="sm" variant="simple">
         <Thead>
           <Tr>
-            <Th>Name</Th>
+            <Th>Geohash</Th>
             <Th>Event ID</Th>
             <Th>Created At</Th>
             <Th>Sender</Th>
@@ -39,7 +141,15 @@ export function LocationsPage() {
           </Tr>
         </Thead>
         <Tbody>
-          {/* Empty table for now */}
+          {locationEvents.map((event) => (
+            <Tr key={event.id}>
+              <Td fontFamily="mono" fontSize="xs">{event.geohash}</Td>
+              <Td fontFamily="mono" fontSize="xs">{event.eventId.slice(0, 8)}...</Td>
+              <Td fontSize="xs">{formatTimestamp(event.created_at)}</Td>
+              <Td fontFamily="mono" fontSize="xs">{event.senderNpub.slice(0, 8)}...</Td>
+              <Td fontFamily="mono" fontSize="xs">{event.receiverNpub.slice(0, 8)}...</Td>
+            </Tr>
+          ))}
         </Tbody>
       </Table>
 
@@ -51,17 +161,53 @@ export function LocationsPage() {
           <ModalCloseButton />
           <ModalBody pb={6}>
             <VStack spacing={4} align="stretch">
-              <Input placeholder="Geohash" aria-label="Geohash" />
-              <Button size="sm">Query Device Location</Button>
-              <Text fontSize="sm">Continuous update</Text>
-              <Select placeholder="Select Sender" aria-label="Sender">
-                <option>Identity 1</option>
+              <Input 
+                placeholder="Geohash" 
+                aria-label="Geohash"
+                value={geohash}
+                onChange={(e) => setGeohash(e.target.value)}
+              />
+              <Button size="sm" onClick={queryDeviceLocation} colorScheme="teal">
+                Query Device Location
+              </Button>
+              <Checkbox
+                isChecked={continuousUpdate}
+                onChange={(e) => setContinuousUpdate(e.target.checked)}
+              >
+                Continuous update
+              </Checkbox>
+              <Select 
+                placeholder="Select Sender" 
+                aria-label="Sender"
+                value={selectedSender}
+                onChange={(e) => setSelectedSender(e.target.value)}
+              >
+                {identities.map((identity) => (
+                  <option key={identity.id} value={identity.npub}>
+                    {identity.name || 'Unnamed'} ({identity.npub.slice(0, 8)}...)
+                  </option>
+                ))}
               </Select>
-              <Select placeholder="Select Receiver" aria-label="Receiver">
-                <option>Contact 1</option>
+              <Select 
+                placeholder="Select Receiver" 
+                aria-label="Receiver"
+                value={selectedReceiver}
+                onChange={(e) => setSelectedReceiver(e.target.value)}
+              >
+                {contacts.map((contact) => (
+                  <option key={contact.id} value={contact.npub}>
+                    {contact.name || 'Unnamed'} ({contact.npub.slice(0, 8)}...)
+                  </option>
+                ))}
               </Select>
             </VStack>
           </ModalBody>
+          <ModalFooter>
+            <Button colorScheme="blue" mr={3} onClick={handleCreateLocation}>
+              Create
+            </Button>
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
     </Box>

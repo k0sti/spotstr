@@ -3,8 +3,19 @@
 
 export function generateNostrKeyPair() {
   // Simplified - would use secp256k1 in production
-  const privateKey = crypto.randomUUID().replace(/-/g, '').slice(0, 32)
-  const publicKey = crypto.randomUUID().replace(/-/g, '').slice(0, 32)
+  // Generate mock keys that match proper bech32 length
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyz'
+  const generateKey = (length: number) => {
+    let result = ''
+    for (let i = 0; i < length; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    return result
+  }
+  
+  // Bech32 encoded keys are typically 58 chars after the prefix
+  const privateKey = generateKey(58)
+  const publicKey = generateKey(58)
   
   return {
     nsec: `nsec1${privateKey}`,
@@ -22,11 +33,13 @@ export function hexToNpub(hex: string): string {
 }
 
 export function validateNsec(nsec: string): boolean {
-  return nsec.startsWith('nsec1') && nsec.length === 37
+  // Valid nsec should start with nsec1 and be 63 characters long (bech32 encoded)
+  return nsec.startsWith('nsec1') && nsec.length >= 63 && nsec.length <= 64
 }
 
 export function validateNpub(npub: string): boolean {
-  return npub.startsWith('npub1') && npub.length === 37
+  // Valid npub should start with npub1 and be 63 characters long (bech32 encoded)
+  return npub.startsWith('npub1') && npub.length >= 63 && npub.length <= 64
 }
 
 export function generateGeohash(lat: number, lng: number, precision: number = 8): string {
