@@ -122,6 +122,52 @@ export function generateGeohash(lat: number, lng: number, precision: number = 8)
   return geohash
 }
 
+// Decode geohash to coordinates with bounding box
+export function decodeGeohash(geohash: string): { lat: number, lng: number, bounds: { minLat: number, maxLat: number, minLng: number, maxLng: number } } | null {
+  if (!geohash) return null
+  
+  const base32 = '0123456789bcdefghjkmnpqrstuvwxyz'
+  let evenBit = true
+  const latRange = [-90, 90]
+  const lngRange = [-180, 180]
+  
+  for (let i = 0; i < geohash.length; i++) {
+    const cd = base32.indexOf(geohash[i])
+    if (cd === -1) return null
+    
+    for (let j = 4; j >= 0; j--) {
+      const mask = 1 << j
+      if (evenBit) {
+        const mid = (lngRange[0] + lngRange[1]) / 2
+        if (cd & mask) {
+          lngRange[0] = mid
+        } else {
+          lngRange[1] = mid
+        }
+      } else {
+        const mid = (latRange[0] + latRange[1]) / 2
+        if (cd & mask) {
+          latRange[0] = mid
+        } else {
+          latRange[1] = mid
+        }
+      }
+      evenBit = !evenBit
+    }
+  }
+  
+  return {
+    lat: (latRange[0] + latRange[1]) / 2,
+    lng: (lngRange[0] + lngRange[1]) / 2,
+    bounds: {
+      minLat: latRange[0],
+      maxLat: latRange[1],
+      minLng: lngRange[0],
+      maxLng: lngRange[1]
+    }
+  }
+}
+
 // Sign event with private key
 export function signNostrEvent(eventTemplate: any, nsec: string) {
   try {

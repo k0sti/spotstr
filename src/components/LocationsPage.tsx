@@ -26,6 +26,7 @@ import {
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 import { generateGeohash } from '../utils/crypto'
+import { mapService } from '../services/mapService'
 
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
@@ -155,9 +156,31 @@ export function LocationsPage() {
         </Thead>
         <Tbody>
           {locationEvents.map((event) => (
-            <Tr key={event.id}>
+            <Tr 
+              key={event.id}
+              onClick={() => {
+                if (event.geohash !== 'encrypted') {
+                  mapService.focusLocation(event.id)
+                  toast({
+                    title: 'Map focused',
+                    description: `Focused on location: ${event.name || event.dTag || 'unnamed'}`,
+                    status: 'info',
+                    duration: 2000,
+                  })
+                }
+              }}
+              cursor={event.geohash !== 'encrypted' ? 'pointer' : 'default'}
+              _hover={event.geohash !== 'encrypted' ? { bg: 'gray.50' } : {}}
+            >
               <Td fontSize="xs">{event.name || event.dTag || '(default)'}</Td>
-              <Td fontFamily="mono" fontSize="xs">{event.geohash}</Td>
+              <Td 
+                fontFamily="mono" 
+                fontSize="xs"
+                color={event.geohash !== 'encrypted' ? 'blue.600' : 'gray.500'}
+                textDecoration={event.geohash !== 'encrypted' ? 'underline' : 'none'}
+              >
+                {event.geohash}
+              </Td>
               <Td fontFamily="mono" fontSize="xs">{event.eventId.slice(0, 8)}...</Td>
               <Td fontSize="xs">{formatTimestamp(event.created_at)}</Td>
               <Td fontFamily="mono" fontSize="xs">{event.senderNpub.slice(0, 8)}...</Td>

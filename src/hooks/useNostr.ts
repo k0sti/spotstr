@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Observable, BehaviorSubject } from 'rxjs'
 import { SimplePool } from 'nostr-tools/pool'
-import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
 import * as nip19 from 'nostr-tools/nip19'
+import * as nip44 from 'nostr-tools/nip44'
 import { LocationEvent, Identity } from '../types'
+import { mapService } from '../services/mapService'
 
 class NostrService {
   private pool = new SimplePool()
@@ -58,6 +60,9 @@ class NostrService {
     
     this.locationEvents$.next(updated)
     this.saveToStorage('locationEvents', updated)
+    
+    // Update map service with new locations
+    mapService.updateLocations(updated)
   }
 
   getLocationEvents(): Observable<LocationEvent[]> {
@@ -155,31 +160,89 @@ class NostrService {
     }
   }
 
-  private processLocationEvent(event: any) {
+  private async processLocationEvent(event: any) {
     // Process incoming location event (NIP-location addressable events)
     // Kind 30473 is an addressable event, deduplicated by pubkey + d-tag
     
     const senderNpub = event.pubkey ? nip19.npubEncode(event.pubkey) : ''
     const dTag = event.tags?.find((t: any) => t[0] === 'd')?.[1] || ''
+    const recipientPubkey = event.tags?.find((t: any) => t[0] === 'p')?.[1]
+    const recipientNpub = recipientPubkey ? nip19.npubEncode(recipientPubkey) : ''
     
     // Create unique ID based on addressable event properties
-    // For addressable events, the combination of kind:pubkey:d-tag is unique
     const addressableId = `30473:${event.pubkey}:${dTag}`
     
+    let decryptedGeohash = 'encrypted'
+    let accuracy: number | undefined
+    
+    // Try to decrypt if we have the recipient's private key
+    if (recipientPubkey && event.content) {
+      const identities = this.identities$.value
+      const recipientIdentity = identities.find(id => {
+        if (!id.nsec) return false
+        try {
+          const decoded = nip19.decode(id.nsec)
+          if (decoded.type === 'nsec') {
+            const pubkey = getPublicKey(decoded.data as Uint8Array)
+            return pubkey === recipientPubkey
+          }
+        } catch {}
+        return false
+      })
+      
+      if (recipientIdentity && recipientIdentity.nsec) {
+        try {
+          // Decrypt using NIP-44
+          const decoded = nip19.decode(recipientIdentity.nsec)
+          if (decoded.type === 'nsec') {
+            const secretKey = decoded.data as Uint8Array
+            const conversationKey = nip44.v2.utils.getConversationKey(
+              secretKey,
+              event.pubkey
+            )
+            
+            const decryptedContent = nip44.v2.decrypt(
+              event.content,
+              conversationKey
+            )
+            
+            // Parse the decrypted JSON array of tags
+            const contentTags = JSON.parse(decryptedContent) as Array<[string, string]>
+            const gTag = contentTags.find(t => t[0] === 'g')
+            const accuracyTag = contentTags.find(t => t[0] === 'accuracy')
+            
+            if (gTag && gTag[1]) {
+              decryptedGeohash = gTag[1]
+              console.log('Decrypted geohash:', decryptedGeohash)
+            }
+            
+            if (accuracyTag && accuracyTag[1]) {
+              accuracy = parseInt(accuracyTag[1])
+            }
+          }
+        } catch (error) {
+          console.error('Failed to decrypt location event:', error)
+        }
+      }
+    }
+    
     const locationEvent: LocationEvent = {
-      id: addressableId, // Use addressable ID instead of random UUID
+      id: addressableId,
       eventId: event.id,
       created_at: event.created_at,
       senderNpub,
-      receiverNpub: event.tags?.find((t: any) => t[0] === 'p')?.[1] 
-        ? nip19.npubEncode(event.tags.find((t: any) => t[0] === 'p')[1])
-        : '',
+      receiverNpub: recipientNpub,
       dTag,
-      geohash: 'encrypted', // Would decrypt from content in production
+      geohash: decryptedGeohash,
+      accuracy,
       expiry: event.tags?.find((t: any) => t[0] === 'expiration')?.[1],
+      name: dTag || undefined,
     }
     
     this.addLocationEvent(locationEvent)
+    
+    // Update map service with all location events
+    mapService.updateLocations(this.locationEvents$.value)
   }
 
   // Disconnect from relays
