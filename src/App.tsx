@@ -48,13 +48,13 @@ export function App() {
           top="0" 
           left="0" 
           right="0" 
-          bg="white" 
+          bg="gray.100" 
           shadow="md" 
           zIndex="1000"
           p={4}
         >
           <Flex justify="space-between" align="center">
-            <Text fontSize="xl" fontWeight="bold">Spotstr</Text>
+            <Text fontSize="xl" fontWeight="bold" color="gray.800">Spotstr</Text>
             
             <HStack spacing={2}>
               <IconButton
@@ -101,7 +101,7 @@ export function App() {
           position="absolute"
           top="20"
           left="4"
-          bg="white"
+          bg="gray.50"
           shadow="lg"
           rounded="md"
           p={6}

@@ -3,7 +3,7 @@ import { Box, Text, Input, VStack, FormLabel } from '@chakra-ui/react'
 export function SettingsPage() {
   return (
     <Box>
-      <Text fontSize="lg" fontWeight="bold" mb={4}>Settings</Text>
+      <Text fontSize="lg" fontWeight="bold" mb={4} color="gray.800">Settings</Text>
       <VStack spacing={4} align="stretch">
         <Box>
           <FormLabel>Location Relay</FormLabel>

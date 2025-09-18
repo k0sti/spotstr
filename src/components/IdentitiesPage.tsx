@@ -121,7 +121,7 @@ export function IdentitiesPage() {
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <Text fontSize="lg" fontWeight="bold">Identities</Text>
+        <Text fontSize="lg" fontWeight="bold" color="gray.800">Identities</Text>
         <Button onClick={onOpen} size="sm" colorScheme="blue">Create New +</Button>
       </HStack>
 
