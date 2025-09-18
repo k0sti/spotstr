@@ -1,13 +1,10 @@
-const { defineConfig } = require('vitest/config')
+import { defineConfig } from 'vitest/config'
 
-module.exports = defineConfig({
+export default defineConfig({
   test: {
     globals: true,
-    environment: 'node',
-    include: ['.claude-collective/tests/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
-    // Configure vitest to find dependencies in the .claude-collective subdirectory
-    deps: {
-      external: ['fs-extra']
-    }
+    environment: 'jsdom',
+    include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    setupFiles: ['./src/test/setup.ts'],
   }
 })
