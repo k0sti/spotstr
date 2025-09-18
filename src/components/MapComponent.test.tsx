@@ -14,12 +14,9 @@ describe('MapComponent', () => {
     expect(mapContainer).toHaveStyle({ height: '100vh' })
   })
 
-  it('displays location markers when provided', () => {
-    const mockLocations = [
-      { id: '1', lat: 51.505, lng: -0.09, name: 'Test Location' }
-    ]
-    render(<MapComponent locations={mockLocations} />)
-    // Map implementation will handle marker display
+  it('renders map without props', () => {
+    render(<MapComponent />)
+    // Map implementation will handle marker display from mapService
     expect(screen.getByTestId('map-container')).toBeInTheDocument()
   })
 })

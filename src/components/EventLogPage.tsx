@@ -22,7 +22,7 @@ export function EventLogPage() {
       id: event.id,
       type: 'sent',
       eventType: 'Location (30473)',
-      message: `Location event from ${event.senderNpub.slice(0, 8)}... to ${event.receiverNpub.slice(0, 8)}...`,
+      message: `Location event from ${event.senderNpub.slice(0, 8)}... to ${event.receiverNpub ? event.receiverNpub.slice(0, 8) + '...' : '(broadcast)'}`,
       timestamp: event.created_at,
       details: {
         geohash: event.geohash,

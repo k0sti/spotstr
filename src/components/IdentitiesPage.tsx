@@ -228,7 +228,7 @@ export function IdentitiesPage() {
                   icon={<span>🗑️</span>}
                   colorScheme="red"
                   variant="ghost"
-                  onClick={() => handleDeleteIdentity(identity.id, identity.name)}
+                  onClick={() => handleDeleteIdentity(identity.id, identity.name || '')}
                 />
               </Td>
             </Tr>

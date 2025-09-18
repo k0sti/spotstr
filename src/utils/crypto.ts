@@ -1,6 +1,5 @@
 import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from 'nostr-tools/pure'
 import * as nip19 from 'nostr-tools/nip19'
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 
 // Generate a new Nostr key pair using nostr-tools
 export function generateNostrKeyPair() {
