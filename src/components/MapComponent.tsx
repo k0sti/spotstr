@@ -33,8 +33,8 @@ export function MapComponent() {
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
 
-    // Initialize Leaflet map
-    mapRef.current = L.map(mapContainerRef.current).setView([51.505, -0.09], 13)
+    // Initialize Leaflet map - center at UTC0 (0 longitude) with a wide view showing most of the world
+    mapRef.current = L.map(mapContainerRef.current).setView([40, 0], 3)
 
     // Add OpenStreetMap tiles
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {

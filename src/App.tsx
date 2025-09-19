@@ -1,11 +1,13 @@
 import { ChakraProvider } from '@chakra-ui/react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { IdentitiesPage } from './components/IdentitiesPage'
 import { LocationsPage } from './components/LocationsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { EventLogPage } from './components/EventLogPage'
 import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
+import * as nip19 from 'nostr-tools/nip19'
+import { getPublicKey } from 'nostr-tools/pure'
 import { 
   Box, 
   Flex, 
@@ -17,12 +19,66 @@ import {
   Link
 } from '@chakra-ui/react'
 
-type PageType = 'identities' | 'locations' | 'settings' | 'eventlog'
+type PageType = 'identities' | 'locations' | 'settings' | 'eventlog' | null
 
 function AppContent() {
-  const [currentPage, setCurrentPage] = useState<PageType>('identities')
-  const { connectedRelays } = useNostr()
+  const [currentPage, setCurrentPage] = useState<PageType>(null)
+  const { connectedRelays, addIdentity } = useNostr()
   const isConnected = connectedRelays.length > 0
+
+  const handlePageClick = (page: PageType) => {
+    // Toggle off if clicking the currently active page
+    if (currentPage === page) {
+      setCurrentPage(null)
+    } else {
+      setCurrentPage(page)
+    }
+  }
+
+  useEffect(() => {
+    // Check for nsec import in URL
+    const pathParts = window.location.pathname.split('/')
+
+    // Check if URL matches /i/[hex]
+    if (pathParts[1] === 'i' && pathParts[2]) {
+      const hexNsec = pathParts[2]
+      const urlParams = new URLSearchParams(window.location.search)
+      const name = urlParams.get('name') || 'Imported Identity'
+
+      try {
+        // Convert hex to Uint8Array
+        const secretKey = new Uint8Array(hexNsec.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)))
+
+        // Get public key from secret key
+        const publicKey = getPublicKey(secretKey)
+
+        // Convert to npub and nsec format
+        const npub = nip19.npubEncode(publicKey)
+        const nsec = nip19.nsecEncode(secretKey)
+
+        // Create identity object
+        const newIdentity = {
+          id: crypto.randomUUID(),
+          name,
+          npub,
+          nsec,
+          source: 'nsec' as const,
+          created_at: Date.now()
+        }
+
+        // Add identity to storage
+        addIdentity(newIdentity)
+
+        // Redirect to base URL
+        window.history.replaceState({}, '', '/')
+
+        // Show success toast
+        console.log(`Successfully imported identity: ${name}`)
+      } catch (error) {
+        console.error('Failed to import identity from URL:', error)
+      }
+    }
+  }, [addIdentity])
 
   const renderCurrentPage = () => {
     switch (currentPage) {
@@ -58,7 +114,16 @@ function AppContent() {
         >
           <Flex justify="space-between" align="center">
             <HStack spacing={3}>
-              <Text fontSize="xl" fontWeight="bold" color="gray.800">Spotstr</Text>
+              <Text
+                fontSize="xl"
+                fontWeight="bold"
+                color="gray.800"
+                cursor="pointer"
+                _hover={{ color: 'gray.600' }}
+                onClick={() => window.location.href = '/'}
+              >
+                Spotstr
+              </Text>
               <Tooltip 
                 label={isConnected ? `Connected to ${connectedRelays.length} relay${connectedRelays.length > 1 ? 's' : ''}` : 'No relay connection'}
                 placement="bottom"
@@ -76,28 +141,28 @@ function AppContent() {
                 aria-label="Identities"
                 icon={<span>👤</span>}
                 size="sm"
-                onClick={() => setCurrentPage('identities')}
+                onClick={() => handlePageClick('identities')}
                 variant={currentPage === 'identities' ? 'solid' : 'outline'}
               />
               <IconButton
                 aria-label="Locations"
                 icon={<span>📍</span>}
                 size="sm"
-                onClick={() => setCurrentPage('locations')}
+                onClick={() => handlePageClick('locations')}
                 variant={currentPage === 'locations' ? 'solid' : 'outline'}
               />
               <IconButton
                 aria-label="Settings"
                 icon={<span>⚙️</span>}
                 size="sm"
-                onClick={() => setCurrentPage('settings')}
+                onClick={() => handlePageClick('settings')}
                 variant={currentPage === 'settings' ? 'solid' : 'outline'}
               />
               <IconButton
                 aria-label="Event Log"
                 icon={<span>📋</span>}
                 size="sm"
-                onClick={() => setCurrentPage('eventlog')}
+                onClick={() => handlePageClick('eventlog')}
                 variant={currentPage === 'eventlog' ? 'solid' : 'outline'}
               />
               <Link href="https://github.com/k0sti/spotstr" isExternal>
@@ -122,21 +187,23 @@ function AppContent() {
         </Box>
 
         {/* Page Content */}
-        <Box 
-          position="absolute"
-          top="20"
-          left="4"
-          bg="gray.50"
-          shadow="lg"
-          rounded="md"
-          p={6}
-          minW="400px"
-          maxH="80vh"
-          overflow="auto"
-          zIndex="999"
-        >
-          {renderCurrentPage()}
-        </Box>
+        {currentPage && (
+          <Box
+            position="absolute"
+            top="20"
+            left="4"
+            bg="gray.50"
+            shadow="lg"
+            rounded="md"
+            p={6}
+            minW="400px"
+            maxH="80vh"
+            overflow="auto"
+            zIndex="999"
+          >
+            {renderCurrentPage()}
+          </Box>
+        )}
       </Box>
     </ChakraProvider>
   )

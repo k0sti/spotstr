@@ -218,7 +218,8 @@ class NostrService {
     
     let decryptedGeohash = 'encrypted'
     let accuracy: number | undefined
-    
+    let nameFromContent: string | undefined
+
     // Try to decrypt if we have the recipient's private key
     if (recipientPubkey && event.content) {
       const identities = this.identities$.value
@@ -233,7 +234,7 @@ class NostrService {
         } catch {}
         return false
       })
-      
+
       if (recipientIdentity && recipientIdentity.nsec) {
         try {
           // Decrypt using NIP-44
@@ -244,24 +245,30 @@ class NostrService {
               secretKey,
               event.pubkey
             )
-            
+
             const decryptedContent = nip44.v2.decrypt(
               event.content,
               conversationKey
             )
-            
+
             // Parse the decrypted JSON array of tags
             const contentTags = JSON.parse(decryptedContent) as Array<[string, string]>
             const gTag = contentTags.find(t => t[0] === 'g')
             const accuracyTag = contentTags.find(t => t[0] === 'accuracy')
-            
+            const nameTag = contentTags.find(t => t[0] === 'name')
+
             if (gTag && gTag[1]) {
               decryptedGeohash = gTag[1]
               console.log('Decrypted geohash:', decryptedGeohash)
             }
-            
+
             if (accuracyTag && accuracyTag[1]) {
               accuracy = parseInt(accuracyTag[1])
+            }
+
+            if (nameTag && nameTag[1]) {
+              nameFromContent = nameTag[1]
+              console.log('Found name in encrypted content:', nameFromContent)
             }
           }
         } catch (error) {
@@ -281,7 +288,7 @@ class NostrService {
       geohash: decryptedGeohash,
       accuracy,
       expiry: event.tags?.find((t: any) => t[0] === 'expiration')?.[1],
-      name: dTag || undefined,
+      name: nameFromContent || dTag || undefined, // Prefer name from encrypted content, then dTag
       encryptedContent: decryptedGeohash === 'encrypted' ? event.content : undefined, // Store encrypted content
     }
     
@@ -382,15 +389,17 @@ class NostrService {
               const contentTags = JSON.parse(decryptedContent) as Array<[string, string]>
               const gTag = contentTags.find(t => t[0] === 'g')
               const accuracyTag = contentTags.find(t => t[0] === 'accuracy')
-              
+              const nameTag = contentTags.find(t => t[0] === 'name')
+
               if (gTag && gTag[1]) {
                 console.log('Decrypted existing location:', location.id, 'geohash:', gTag[1])
                 hasUpdates = true
-                
+
                 return {
                   ...location,
                   geohash: gTag[1],
-                  accuracy: accuracyTag ? parseInt(accuracyTag[1]) : location.accuracy
+                  accuracy: accuracyTag ? parseInt(accuracyTag[1]) : location.accuracy,
+                  name: nameTag?.[1] || location.name // Update name if found in encrypted content
                 }
               }
             }
