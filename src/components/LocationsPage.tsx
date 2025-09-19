@@ -39,7 +39,7 @@ import { mapService } from '../services/mapService'
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
-  const { identities, locationEvents, addLocationEvent, clearAllLocations } = useNostr()
+  const { identities, locationEvents, addLocationEvent, clearAllLocations, publishLocationEvent, connectedRelays } = useNostr()
   const toast = useToast()
   const cancelRef = useRef(null)
   const [geohash, setGeohash] = useState('')
@@ -86,7 +86,7 @@ export function LocationsPage() {
     )
   }
 
-  const handleCreateLocation = () => {
+  const handleCreateLocation = async () => {
     if (!geohash) {
       toast({
         title: 'Geohash required',
@@ -107,42 +107,124 @@ export function LocationsPage() {
       return
     }
 
-    // Create addressable event ID based on NIP-01 spec
-    // For addressable events (kind 30473), the d-tag defines uniqueness
-    const dTag = locationName || '' // Empty string for single location per pubkey
-    const senderPubkey = selectedSender // This is npub, would need conversion in real impl
-    const addressableId = `30473:${senderPubkey}:${dTag}`
-    
-    const locationEvent = {
-      id: addressableId, // Use addressable ID format
-      eventId: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
-      created_at: Math.floor(Date.now() / 1000),
-      senderNpub: selectedSender,
-      receiverNpub: selectedReceiver,
-      dTag, // Use the location name as d-tag (or empty for single location)
-      geohash,
-      accuracy: accuracy > 0 ? accuracy : undefined, // Include accuracy if provided
-      expiry: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
-      name: locationName || undefined, // Store the name for display
+    if (connectedRelays.length === 0) {
+      toast({
+        title: 'No relays connected',
+        description: 'Please connect to at least one relay in Settings',
+        status: 'warning',
+        duration: 3000,
+      })
+      return
     }
 
-    addLocationEvent(locationEvent)
-    
-    toast({
-      title: 'Location created',
-      description: 'Location event has been created',
-      status: 'success',
-      duration: 3000,
-    })
+    try {
+      // Import necessary functions for creating Nostr events
+      const { npubToHex } = await import('../utils/crypto')
+      const nip44 = await import('nostr-tools/nip44')
+      const { getPublicKey } = await import('nostr-tools/pure')
+      const nip19 = await import('nostr-tools/nip19')
 
-    // Reset form
-    setGeohash('')
-    setSelectedSender('')
-    setSelectedReceiver('')
-    setContinuousUpdate(false)
-    setLocationName('')
-    setAccuracy(100)
-    onClose()
+      // Get sender identity with private key
+      const senderIdentity = identities.find(id => id.npub === selectedSender && id.nsec)
+      if (!senderIdentity || !senderIdentity.nsec) {
+        throw new Error('Sender identity not found or has no private key')
+      }
+
+      // Decode sender's private key
+      const senderSecretKeyDecoded = nip19.decode(senderIdentity.nsec)
+      if (senderSecretKeyDecoded.type !== 'nsec') {
+        throw new Error('Invalid nsec')
+      }
+      const senderSecretKey = senderSecretKeyDecoded.data as Uint8Array
+      const senderPublicKey = getPublicKey(senderSecretKey)
+
+      // Get receiver's public key
+      const receiverPublicKey = npubToHex(selectedReceiver)
+      if (!receiverPublicKey) {
+        throw new Error('Invalid receiver npub')
+      }
+
+      // Create conversation key for NIP-44 encryption
+      const conversationKey = nip44.v2.utils.getConversationKey(
+        senderSecretKey,
+        receiverPublicKey
+      )
+
+      // Prepare location data tags
+      const locationTags: string[][] = [['g', geohash]]
+      if (accuracy > 0) {
+        locationTags.push(['accuracy', accuracy.toString()])
+      }
+      if (locationName) {
+        locationTags.push(['name', locationName])
+      }
+
+      // Encrypt location data
+      const encryptedContent = nip44.v2.encrypt(
+        JSON.stringify(locationTags),
+        conversationKey
+      )
+
+      // Create the Nostr event
+      const dTag = locationName || '' // Empty string for single location per pubkey
+      const expiry_ms = Math.floor(Date.now() / 1000) + 3600 // 1 hour from now
+
+      const unsignedEvent = {
+        kind: 30473, // NIP-location addressable event kind
+        pubkey: senderPublicKey,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ['d', dTag], // Addressable event identifier
+          ['p', receiverPublicKey], // Recipient
+          ['expiry', expiry_ms.toString()], // Expiry time
+        ],
+        content: encryptedContent,
+      }
+
+      // Publish the event to connected relays
+      await publishLocationEvent(unsignedEvent, connectedRelays)
+
+      // Also save locally for display (with decrypted data for UI)
+      const addressableId = `30473:${senderPublicKey}:${dTag}`
+      const locationEvent = {
+        id: addressableId,
+        eventId: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
+        created_at: Math.floor(Date.now() / 1000),
+        senderNpub: selectedSender,
+        receiverNpub: selectedReceiver,
+        dTag,
+        geohash,
+        accuracy: accuracy > 0 ? accuracy : undefined,
+        expiry: expiry_ms,
+        name: locationName || undefined,
+      }
+
+      addLocationEvent(locationEvent)
+
+      toast({
+        title: 'Location published',
+        description: `Location event has been published to ${connectedRelays.length} relay(s)`,
+        status: 'success',
+        duration: 3000,
+      })
+
+      // Reset form
+      setGeohash('')
+      setSelectedSender('')
+      setSelectedReceiver('')
+      setContinuousUpdate(false)
+      setLocationName('')
+      setAccuracy(100)
+      onClose()
+    } catch (error) {
+      console.error('Failed to create/publish location:', error)
+      toast({
+        title: 'Failed to publish location',
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        status: 'error',
+        duration: 5000,
+      })
+    }
   }
 
   const formatTimestamp = (timestamp: number) => {
