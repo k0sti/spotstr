@@ -169,19 +169,26 @@ class NostrService {
   // Publish location event to relays
   async publishLocationEvent(event: any, relayUrls: string[]) {
     try {
-      // Get the first identity's secret key for signing (in production, let user choose)
+      // Find the identity that matches the event's pubkey for signing
       const identities = this.identities$.value
-      if (identities.length === 0) {
-        throw new Error('No identity available for signing')
-      }
+      const senderIdentity = identities.find(id => {
+        if (!id.nsec) return false
+        try {
+          const decoded = nip19.decode(id.nsec)
+          if (decoded.type === 'nsec') {
+            const pubkey = getPublicKey(decoded.data as Uint8Array)
+            return pubkey === event.pubkey
+          }
+        } catch {}
+        return false
+      })
 
-      const identity = identities[0]
-      if (!identity.nsec) {
-        throw new Error('Identity has no secret key')
+      if (!senderIdentity || !senderIdentity.nsec) {
+        throw new Error('No matching identity with secret key found for signing')
       }
 
       // Decode the nsec to get the secret key
-      const decoded = nip19.decode(identity.nsec)
+      const decoded = nip19.decode(senderIdentity.nsec)
       if (decoded.type !== 'nsec') {
         throw new Error('Invalid nsec')
       }

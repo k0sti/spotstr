@@ -39,7 +39,7 @@ import { mapService } from '../services/mapService'
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
-  const { identities, locationEvents, addLocationEvent, clearAllLocations, publishLocationEvent, connectedRelays } = useNostr()
+  const { identities, locationEvents, clearAllLocations, publishLocationEvent, connectedRelays } = useNostr()
   const toast = useToast()
   const cancelRef = useRef(null)
   const [geohash, setGeohash] = useState('')
@@ -182,24 +182,8 @@ export function LocationsPage() {
       }
 
       // Publish the event to connected relays
+      // The event will be added to local storage automatically when received back from the relay
       await publishLocationEvent(unsignedEvent, connectedRelays)
-
-      // Also save locally for display (with decrypted data for UI)
-      const addressableId = `30473:${senderPublicKey}:${dTag}`
-      const locationEvent = {
-        id: addressableId,
-        eventId: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
-        created_at: Math.floor(Date.now() / 1000),
-        senderNpub: selectedSender,
-        receiverNpub: selectedReceiver,
-        dTag,
-        geohash,
-        accuracy: accuracy > 0 ? accuracy : undefined,
-        expiry: expiry_ms,
-        name: locationName || undefined,
-      }
-
-      addLocationEvent(locationEvent)
 
       toast({
         title: 'Location published',
