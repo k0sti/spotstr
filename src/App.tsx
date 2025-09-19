@@ -36,15 +36,12 @@ function AppContent() {
   }
 
   useEffect(() => {
-    // Check for nsec import in URL
-    const pathParts = window.location.pathname.split('/')
+    // Check for nsec import in URL query parameters
+    const urlParams = new URLSearchParams(window.location.search)
+    const hexNsec = urlParams.get('i')
+    const name = urlParams.get('name') || 'Imported Identity'
 
-    // Check if URL matches /i/[hex]
-    if (pathParts[1] === 'i' && pathParts[2]) {
-      const hexNsec = pathParts[2]
-      const urlParams = new URLSearchParams(window.location.search)
-      const name = urlParams.get('name') || 'Imported Identity'
-
+    if (hexNsec) {
       try {
         // Convert hex to Uint8Array
         const secretKey = new Uint8Array(hexNsec.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)))
@@ -69,7 +66,7 @@ function AppContent() {
         // Add identity to storage
         addIdentity(newIdentity)
 
-        // Redirect to base URL
+        // Redirect to base URL without query parameters
         window.history.replaceState({}, '', '/')
 
         // Show success toast
