@@ -1,195 +1,102 @@
-# Spotstr - Location Sharing on Nostr
+# Spotstr
 
-A location-sharing application built on the Nostr protocol implementing NIP-30473 (encrypted location events).
+A privacy-focused location sharing application built on the Nostr protocol, enabling secure and encrypted location sharing between users.
 
-## 🚀 DELIVERY COMPLETE - TDD APPROACH
+## Overview
 
-✅ **Tests written first (RED phase)** - Complete test suite created covering core functionality
-✅ **Implementation passes all tests (GREEN phase)** - All UI components and interactions functional  
-✅ **Code refactored for quality (REFACTOR phase)** - Enhanced with TypeScript, state management, and polished UI
+Spotstr allows users to share their location with specific individuals or groups using end-to-end encryption. Built on Nostr's decentralized architecture, it ensures privacy and user control over their location data without relying on centralized servers.
 
-📊 **Test Results**: 19/19 passing
-🎯 **Task Delivered**: Complete location-sharing Nostr application with 5 main pages and core functionality
-📋 **Key Features**: Identity management, location sharing, contact management, interactive map, settings, event logging
+### Key Features
 
-## 📚 Research Applied
+- **Encrypted Location Sharing**: Share locations privately with specific users using NIP-44 encryption
+- **Addressable Events**: Efficient location updates using replaceable events (no location history clutter)
+- **Multiple Identities**: Manage multiple Nostr identities for different sharing contexts
+- **Real-time Updates**: Subscribe to location events from connected relays
+- **Interactive Map**: Visual representation of shared locations using Leaflet
+- **Privacy-First**: Locations are encrypted and only accessible to intended recipients
 
-**Context7 Documentation Integration:**
-- **RxJS**: Implemented reactive state management for real-time event handling
-- **Leaflet**: Interactive map with markers and location display
-- **Chakra UI**: Complete component library for consistent, accessible UI
-- **Applesauce**: Nostr protocol integration for event handling and relay communication
+## NIP-location Specification
 
-**Current Best Practices Applied:**
-- TypeScript for type safety
-- Test-driven development with Vitest
-- Reactive programming patterns with RxJS
-- Modern React hooks and patterns
-- Accessible UI components
+Spotstr implements a custom Nostr Improvement Proposal (NIP) for location sharing, documented in [NIP-location.md](https://github.com/k0sti/nostr-location/blob/main/NIP-location.md). This specification is not an official NIP but provides a standardized way to share encrypted location data on Nostr.
 
-## 🔧 Technologies Used
+### Why a Custom NIP?
 
-- **Frontend**: React 18 + TypeScript + Vite
-- **UI Library**: Chakra UI v2.10.9
-- **State Management**: RxJS v7.8.2 with BehaviorSubjects
-- **Maps**: Leaflet v1.9.4 with React-Leaflet
-- **Nostr Integration**: Applesauce suite v3.1.0
-- **Testing**: Vitest + Testing Library
-- **Build Tool**: Bun (as specified in requirements)
+The NIP-location specification addresses the need for:
+- **Privacy**: Location data is sensitive and must be encrypted end-to-end
+- **Efficiency**: Using addressable events (kind 30473) prevents accumulation of outdated location events
+- **Flexibility**: Supports various use cases from single location sharing to continuous tracking
+- **Extensibility**: Additional metadata can be included in encrypted content
 
-## 📁 Files Created/Modified
+### How It Works
 
-**Core Application:**
-- `src/App.tsx` - Main application with navigation and layout
-- `src/main.tsx` - Application entry point
-- `index.html` - HTML template
+1. **Addressable Events**: Uses event kind 30473 (in the 30000-39999 addressable range)
+   - Events are replaceable based on pubkey + d-tag combination
+   - Prevents relay storage bloat from location history
 
-**Components:**
-- `src/components/IdentitiesPage.tsx` - Identity management with key generation
-- `src/components/LocationsPage.tsx` - Location event creation and management
-- `src/components/ContactsPage.tsx` - Contact management
-- `src/components/SettingsPage.tsx` - Relay configuration
-- `src/components/EventLogPage.tsx` - Event logging interface
-- `src/components/MapComponent.tsx` - Interactive Leaflet map
+2. **Encryption**: Location data is encrypted using NIP-44
+   - Content contains a JSON array of tags: `[["g", "geohash"], ["accuracy", "meters"], ...]`
+   - Only the intended recipient can decrypt the location
 
-**Core Services:**
-- `src/hooks/useNostr.ts` - Nostr service integration with RxJS
-- `src/utils/crypto.ts` - Cryptographic utilities for Nostr keys
-- `src/types/index.ts` - TypeScript type definitions
+3. **Privacy Models**: Supports different sharing scenarios
+   - Direct sharing with known recipients (using p-tag)
+   - Anonymous sharing with ephemeral pubkeys
+   - Group sharing with out-of-band key distribution
 
-**Testing:**
-- `src/test/setup.ts` - Test environment configuration
-- `src/**/*.test.tsx` - Comprehensive test suite (19 tests)
+4. **Geohash Format**: Uses geohash for location encoding
+   - Compact representation
+   - Variable precision
+   - Good Nostr ecosystem adoption
 
-**Configuration:**
-- `package.json` - Dependencies and scripts
-- `tsconfig.json` - TypeScript configuration
-- `vite.config.ts` - Vite build configuration
-- `vitest.config.js` - Test configuration
-
-## 🎯 Features Implemented
-
-### Identity Management
-- Generate new Nostr key pairs
-- Import existing nsec keys
-- Browser extension integration (placeholder)
-- Key copying and management
-- Local storage persistence
-
-### Location Sharing
-- Create location events with geohash
-- Device location querying
-- Continuous location updates
-- Sender/receiver selection
-- NIP-30473 event structure
-
-### Contact Management
-- Add contacts by npub
-- Generate ephemeral keys
-- Profile display with avatars (as per design spec)
-- Contact organization
-
-### Interactive Map
-- Full-screen Leaflet map background
-- Location marker display
-- OpenStreetMap tiles
-- Responsive design
-
-### Settings & Configuration
-- Configurable relay endpoints
-- Default relay: `https://precision.bilberry-tetra.ts.net/relay`
-- Real-time settings updates
-
-### Event Logging
-- Raw event display
-- Send/receive event differentiation
-- Log clearing functionality
-
-## 🏃 Quick Start
+## Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/k0sti/spotstr.git
+cd spotstr
+
 # Install dependencies
 bun install
 
-# Run tests
-bun run test
-
 # Start development server
+bun run dev
+```
+
+## Development
+
+```bash
+# Development server
 bun run dev
 
 # Build for production
 bun run build
+
+# Run tests
+bun test
+
+# Preview production build
+bun run preview
 ```
 
-## 🧪 Testing
+## Contributing
 
-The application follows Test-Driven Development (TDD) methodology:
+Contributions are welcome! The project is in active development, particularly around:
+- Improving the NIP-location specification
+- Enhancing the user interface
+- Supporting additional location sharing patterns
 
-```bash
-# Run all tests
-bun run test
+## License
 
-# Run tests in watch mode
-bun run test --watch
+MIT License - see [LICENSE](LICENSE) file for details.
 
-# Run tests with coverage
-bun run test --coverage
-```
+## Security Considerations
 
-**Test Coverage:**
-- App navigation and layout
-- Identity creation and management
-- Location event handling
-- Contact management
-- Map component integration
-- Modal interactions and form handling
+- Location data is sensitive - always verify recipient identities
+- Use ephemeral keys for anonymous sharing
+- Consider using time-limited sharing with expiration tags
+- Be mindful of geohash precision levels for privacy
 
-## 🔒 Security Features
+## Links
 
-- Secure key generation and storage
-- Input validation for Nostr keys
-- Encrypted location event structure (NIP-30473)
-- Geohash-based location encoding
-- Privacy-focused design patterns
-
-## 🌐 Nostr Integration
-
-Implements the following Nostr concepts:
-- **NIP-30473**: Encrypted location sharing events
-- **Event Store**: Local event caching and management
-- **Relay Pool**: Multi-relay communication
-- **Key Management**: Nostr key pair generation and validation
-- **Event Publishing**: Location event creation and broadcasting
-
-## 📱 UI/UX Features
-
-- **Responsive Design**: Works on desktop and mobile
-- **Accessibility**: ARIA labels and keyboard navigation
-- **Toast Notifications**: User feedback for actions
-- **Modal Interactions**: Clean popup interfaces
-- **Icon-based Navigation**: Intuitive UI with emoji icons
-- **Real-time Updates**: Reactive state management
-- **Professional Styling**: Consistent Chakra UI theme
-
-## 🔧 Development
-
-The application is structured for maintainability and scalability:
-
-- **Component-based Architecture**: Reusable React components
-- **Type Safety**: Full TypeScript implementation
-- **State Management**: RxJS reactive patterns
-- **Testing Strategy**: Comprehensive unit and integration tests
-- **Build Optimization**: Vite for fast development and builds
-
-## 🚀 Deployment
-
-The application builds to static files and can be deployed to any web hosting service:
-
-```bash
-bun run build
-# Deploy dist/ folder to your hosting platform
-```
-
----
-
-**Component implementation complete and validated.** The application successfully implements all requirements from the design specifications with a robust, tested, and production-ready codebase.
+- [NIP-location Specification](https://github.com/k0sti/nostr-location/blob/main/NIP-location.md)
+- [Nostr Protocol](https://nostr.com/)
+- [NIPs Repository](https://github.com/nostr-protocol/nips)
