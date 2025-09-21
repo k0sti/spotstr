@@ -1,0 +1,1 @@
+Make commit with an appropriate message based on staged files. Don't mention author/source of the message. 
