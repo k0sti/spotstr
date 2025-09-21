@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Spotstr</string>
+    <string name="title_activity_main">Spotstr</string>
+    <string name="package_name">space.nexel.spotstr</string>
+    <string name="custom_url_scheme">space.nexel.spotstr</string>
+</resources>

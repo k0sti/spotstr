@@ -8,9 +8,16 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "android:build": "bun run build && bunx cap sync android",
+    "android:run": "bunx cap run android",
+    "android:open": "bunx cap open android",
+    "android:sync": "bunx cap sync android"
   },
   "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/cli": "^7.4.3",
+    "@capacitor/core": "^7.4.3",
     "@chakra-ui/react": "2.10.9",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
