@@ -15,37 +15,10 @@ Spotstr allows users to share their location with specific individuals or groups
 - **Interactive Map**: Visual representation of shared locations using Leaflet
 - **Privacy-First**: Locations are encrypted and only accessible to intended recipients
 
-## NIP-location Specification
+## Location Event Specification
 
-Spotstr implements a custom Nostr Improvement Proposal (NIP) for location sharing, documented in [NIP-location.md](https://github.com/k0sti/nostr-location/blob/main/NIP-location.md). This specification is not an official NIP but provides a standardized way to share encrypted location data on Nostr.
-
-### Why a Custom NIP?
-
-The NIP-location specification addresses the need for:
-- **Privacy**: Location data is sensitive and must be encrypted end-to-end
-- **Efficiency**: Using addressable events (kind 30473) prevents accumulation of outdated location events
-- **Flexibility**: Supports various use cases from single location sharing to continuous tracking
-- **Extensibility**: Additional metadata can be included in encrypted content
-
-### How It Works
-
-1. **Addressable Events**: Uses event kind 30473 (in the 30000-39999 addressable range)
-   - Events are replaceable based on pubkey + d-tag combination
-   - Prevents relay storage bloat from location history
-
-2. **Encryption**: Location data is encrypted using NIP-44
-   - Content contains a JSON array of tags: `[["g", "geohash"], ["accuracy", "meters"], ...]`
-   - Only the intended recipient can decrypt the location
-
-3. **Privacy Models**: Supports different sharing scenarios
-   - Direct sharing with known recipients (using p-tag)
-   - Anonymous sharing with ephemeral pubkeys
-   - Group sharing with out-of-band key distribution
-
-4. **Geohash Format**: Uses geohash for location encoding
-   - Compact representation
-   - Variable precision
-   - Good Nostr ecosystem adoption
+Location events use [location-first Nostr event specification](https://github.com/k0sti/nostr-location.git).
+Currently only encrypted `kind:30473` events are supported.
 
 ## Installation
 
