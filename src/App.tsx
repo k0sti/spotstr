@@ -1,11 +1,13 @@
 import { ChakraProvider } from '@chakra-ui/react'
 import { useState, useEffect } from 'react'
-import { IdentitiesPage } from './components/IdentitiesPage'
+import { IdentitiesPageNew } from './components/IdentitiesPageNew'
 import { LocationsPage } from './components/LocationsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { EventLogPage } from './components/EventLogPage'
 import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
+import { AccountsProvider } from 'applesauce-react'
+import accounts from './services/accounts'
 import * as nip19 from 'nostr-tools/nip19'
 import { getPublicKey } from 'nostr-tools/pure'
 import {
@@ -81,7 +83,7 @@ function AppContent() {
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'identities':
-        return <IdentitiesPage />
+        return <IdentitiesPageNew />
       case 'locations':
         return <LocationsPage />
       case 'settings':
@@ -89,7 +91,7 @@ function AppContent() {
       case 'eventlog':
         return <EventLogPage />
       default:
-        return <IdentitiesPage />
+        return <IdentitiesPageNew />
     }
   }
 
@@ -219,7 +221,9 @@ function AppContent() {
 export function App() {
   return (
     <ChakraProvider>
-      <AppContent />
+      <AccountsProvider manager={accounts}>
+        <AppContent />
+      </AccountsProvider>
     </ChakraProvider>
   )
 }
