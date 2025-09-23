@@ -53,7 +53,6 @@ PasswordAccount.requestUnlockPassword = async () => {
 
 // Load accounts from localStorage
 const STORAGE_KEY = 'spotstr_accounts'
-const ACTIVE_ACCOUNT_KEY = 'spotstr_active_account'
 
 // Load saved accounts
 const loadAccounts = () => {
@@ -64,12 +63,7 @@ const loadAccounts = () => {
       accounts.fromJSON(parsed, true)
     }
 
-    // Load active account
-    const activeAccountPubkey = localStorage.getItem(ACTIVE_ACCOUNT_KEY)
-    if (activeAccountPubkey) {
-      const account = accounts.accounts.find(a => a.pubkey === activeAccountPubkey)
-      if (account) accounts.setActive(account)
-    }
+    // No active account needed - multi-account support
   } catch (error) {
     console.error('Failed to load accounts:', error)
   }
@@ -81,14 +75,7 @@ accounts.accounts$.pipe(skip(1)).subscribe(async () => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(json))
 })
 
-// Save active account when it changes
-accounts.active$.pipe(skip(1)).subscribe((account: any) => {
-  if (account) {
-    localStorage.setItem(ACTIVE_ACCOUNT_KEY, account.pubkey)
-  } else {
-    localStorage.removeItem(ACTIVE_ACCOUNT_KEY)
-  }
-})
+// No active account tracking needed
 
 // Load accounts on initialization
 loadAccounts()

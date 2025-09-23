@@ -60,7 +60,6 @@ function AppContent() {
 
           // Add account to the manager
           accounts.addAccount(account)
-          accounts.setActive(account)
 
           // Redirect to base URL without query parameters
           window.history.replaceState({}, '', '/')

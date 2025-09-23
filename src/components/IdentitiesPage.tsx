@@ -32,6 +32,7 @@ import { useAccountManager, useAccounts } from 'applesauce-react/hooks'
 import { ExtensionAccount, SimpleAccount, NostrConnectAccount } from 'applesauce-accounts/accounts'
 import { ExtensionSigner, SimpleSigner, NostrConnectSigner } from 'applesauce-signers'
 import { npubEncode } from 'nostr-tools/nip19'
+import { generateNostrKeyPair } from '../utils/crypto'
 
 // Check if we're on Android
 const IS_WEB_ANDROID = /android/i.test(navigator.userAgent)
@@ -57,22 +58,27 @@ const getAccountTypeLabel = (type: string) => {
   }
 }
 
-// Account Row Component
-function AccountRow({ account, manager, onDelete, onCopy }: {
+// Identity Row Component
+function IdentityRow({ account, onDelete, onCopy }: {
   account: any
-  manager: any
   onDelete: (account: any) => void
   onCopy: (text: string, label: string) => void
 }) {
-  const npubDisplay = useMemo(() => {
+  const npubFull = useMemo(() => {
     try {
-      const npub = npubEncode(account.pubkey)
-      return npub.slice(0, 12) + '...' + npub.slice(-4)
+      return npubEncode(account.pubkey)
     } catch {
-      // Fallback to showing hex if nip19 not available
-      return account.pubkey.slice(0, 8) + '...'
+      return account.pubkey
     }
   }, [account.pubkey])
+
+  const npubShort = useMemo(() => {
+    if (npubFull.startsWith('npub')) {
+      const withoutPrefix = npubFull.slice(4)
+      return `${withoutPrefix.slice(0, 5)}..${withoutPrefix.slice(-5)}`
+    }
+    return account.pubkey.slice(0, 8) + '...'
+  }, [npubFull])
 
   return (
     <Tr>
@@ -82,43 +88,33 @@ function AccountRow({ account, manager, onDelete, onCopy }: {
         </Badge>
       </Td>
       <Td>
-        <HStack spacing={1}>
-          <Text fontSize="xs" fontFamily="mono">
-            {npubDisplay}
-          </Text>
-          <Tooltip label="Copy npub">
-            <IconButton
-              size="xs"
-              aria-label="Copy npub"
-              icon={<span>📋</span>}
-              onClick={() => {
-                try {
-                  const npub = npubEncode(account.pubkey)
-                  onCopy(npub, 'Public key')
-                } catch {
-                  onCopy(account.pubkey, 'Public key')
-                }
-              }}
-            />
-          </Tooltip>
-        </HStack>
+        <Text fontSize="sm">
+          {account.metadata?.name || 'Unnamed'}
+        </Text>
       </Td>
       <Td>
-        {manager.active === account ? (
-          <Badge colorScheme="green">Active</Badge>
-        ) : (
-          <Button
-            size="xs"
-            onClick={() => manager.setActive(account)}
-          >
-            Set Active
-          </Button>
-        )}
+        <VStack align="start" spacing={0}>
+          <HStack spacing={1}>
+            <Text fontSize="xs" color="gray.600">npub</Text>
+            <Tooltip label="Copy npub">
+              <IconButton
+                size="xs"
+                aria-label="Copy npub"
+                icon={<span>📋</span>}
+                variant="ghost"
+                onClick={() => onCopy(npubFull, 'Public key')}
+              />
+            </Tooltip>
+          </HStack>
+          <Text fontSize="xs" fontFamily="mono" color="gray.700">
+            {npubShort}
+          </Text>
+        </VStack>
       </Td>
       <Td>
         <IconButton
           size="xs"
-          aria-label="Delete account"
+          aria-label="Delete identity"
           icon={<span>🗑️</span>}
           colorScheme="red"
           variant="ghost"
@@ -166,8 +162,6 @@ export function IdentitiesPage() {
       if (!manager.accounts.includes(account)) {
         manager.addAccount(account)
       }
-
-      manager.setActive(account)
 
       toast({
         title: 'Extension connected',
@@ -242,7 +236,6 @@ export function IdentitiesPage() {
 
         const account = new NostrConnectAccount(pubkey, amberSigner)
         manager.addAccount(account)
-        manager.setActive(account)
 
         toast({
           title: 'Amber connected',
@@ -298,8 +291,6 @@ export function IdentitiesPage() {
         manager.addAccount(account)
       }
 
-      manager.setActive(account)
-
       toast({
         title: 'Bunker connected',
         description: 'Successfully connected to remote signer',
@@ -325,14 +316,14 @@ export function IdentitiesPage() {
   // Generate new keys
   const handleGenerateKeys = async () => {
     try {
-      const signer = new SimpleSigner()
+      const { secretKey } = generateNostrKeyPair()
+      const signer = new SimpleSigner(secretKey)
       const pubkey = await signer.getPublicKey()
 
       const account = new SimpleAccount(pubkey, signer)
       account.metadata = { name: nameInput || 'Generated Account' }
 
       manager.addAccount(account)
-      manager.setActive(account)
 
       toast({
         title: 'Account created',
@@ -382,7 +373,6 @@ export function IdentitiesPage() {
       account.metadata = { name: nameInput || 'Imported Account' }
 
       manager.addAccount(account)
-      manager.setActive(account)
 
       toast({
         title: 'Account imported',
@@ -408,8 +398,8 @@ export function IdentitiesPage() {
   const handleDeleteAccount = (account: any) => {
     manager.removeAccount(account)
     toast({
-      title: 'Account removed',
-      description: 'Account has been deleted',
+      title: 'Identity removed',
+      description: 'Identity has been deleted',
       status: 'info',
       duration: 3000,
     })
@@ -437,25 +427,24 @@ export function IdentitiesPage() {
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <Text fontSize="lg" fontWeight="bold" color="gray.800">Accounts</Text>
-        <Button onClick={onOpen} size="sm" colorScheme="blue">Add Account +</Button>
+        <Text fontSize="lg" fontWeight="bold" color="gray.800">Identities</Text>
+        <Button onClick={onOpen} size="sm" colorScheme="blue">Add Identity +</Button>
       </HStack>
 
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
             <Th>Type</Th>
+            <Th>Identity</Th>
             <Th>Public Key</Th>
-            <Th>Active</Th>
             <Th>Actions</Th>
           </Tr>
         </Thead>
         <Tbody>
           {accountsList.map((account) => (
-            <AccountRow
+            <IdentityRow
               key={account.pubkey}
               account={account}
-              manager={manager}
               onDelete={handleDeleteAccount}
               onCopy={copyToClipboard}
             />
@@ -463,11 +452,11 @@ export function IdentitiesPage() {
         </Tbody>
       </Table>
 
-      {/* Add Account Modal */}
+      {/* Add Identity Modal */}
       <Modal isOpen={isOpen} onClose={onClose}>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Add Account</ModalHeader>
+          <ModalHeader>Add Identity</ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={6}>
             <VStack spacing={4} align="stretch">
