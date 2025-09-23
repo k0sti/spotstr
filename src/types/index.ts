@@ -2,9 +2,10 @@
 export interface Identity {
   id: string
   name?: string
-  source: 'created' | 'npub' | 'nsec' | 'extension'
+  source: 'created' | 'npub' | 'nsec' | 'extension' | 'amber' | 'bunker'
   npub: string
   nsec?: string
+  bunkerUri?: string // For reconnecting to bunker signers
   created_at: number
 }
 

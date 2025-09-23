@@ -6,8 +6,8 @@ import { SettingsPage } from './components/SettingsPage'
 import { EventLogPage } from './components/EventLogPage'
 import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
-import * as nip19 from 'nostr-tools/nip19'
-import { getPublicKey } from 'nostr-tools/pure'
+import { AccountsProvider } from 'applesauce-react'
+import accounts from './services/accounts'
 import {
   Box,
   Flex,
@@ -24,7 +24,7 @@ type PageType = 'identities' | 'locations' | 'settings' | 'eventlog' | null
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageType>(null)
-  const { connectedRelays, addIdentity } = useNostr()
+  const { connectedRelays } = useNostr()
   const isConnected = connectedRelays.length > 0
 
   const handlePageClick = (page: PageType) => {
@@ -40,43 +40,41 @@ function AppContent() {
     // Check for nsec import in URL query parameters
     const urlParams = new URLSearchParams(window.location.search)
     const hexNsec = urlParams.get('i')
-    const name = urlParams.get('name') || 'Imported Identity'
+    const name = urlParams.get('name') || 'Imported Account'
 
     if (hexNsec) {
-      try {
-        // Convert hex to Uint8Array
-        const secretKey = new Uint8Array(hexNsec.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)))
+      const importAccount = async () => {
+        try {
+          // Convert hex to Uint8Array
+          const secretKey = new Uint8Array(hexNsec.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)))
 
-        // Get public key from secret key
-        const publicKey = getPublicKey(secretKey)
+          // Import account system dependencies
+          const { SimpleSigner } = await import('applesauce-signers')
+          const { SimpleAccount } = await import('applesauce-accounts/accounts')
 
-        // Convert to npub and nsec format
-        const npub = nip19.npubEncode(publicKey)
-        const nsec = nip19.nsecEncode(secretKey)
+          // Create signer and account
+          const signer = new SimpleSigner(secretKey)
+          const pubkey = await signer.getPublicKey()
+          const account = new SimpleAccount(pubkey, signer)
+          account.metadata = { name }
 
-        // Create identity object
-        const newIdentity = {
-          id: crypto.randomUUID(),
-          name,
-          npub,
-          nsec,
-          source: 'nsec' as const,
-          created_at: Date.now()
+          // Add account to the manager
+          accounts.addAccount(account)
+          accounts.setActive(account)
+
+          // Redirect to base URL without query parameters
+          window.history.replaceState({}, '', '/')
+
+          // Show success toast
+          console.log(`Successfully imported account: ${name}`)
+        } catch (error) {
+          console.error('Failed to import account from URL:', error)
         }
-
-        // Add identity to storage
-        addIdentity(newIdentity)
-
-        // Redirect to base URL without query parameters
-        window.history.replaceState({}, '', '/')
-
-        // Show success toast
-        console.log(`Successfully imported identity: ${name}`)
-      } catch (error) {
-        console.error('Failed to import identity from URL:', error)
       }
+
+      importAccount()
     }
-  }, [addIdentity])
+  }, [])
 
   const renderCurrentPage = () => {
     switch (currentPage) {
@@ -219,7 +217,9 @@ function AppContent() {
 export function App() {
   return (
     <ChakraProvider>
-      <AppContent />
+      <AccountsProvider manager={accounts}>
+        <AppContent />
+      </AccountsProvider>
     </ChakraProvider>
   )
 }

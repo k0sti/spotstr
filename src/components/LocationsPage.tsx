@@ -33,13 +33,15 @@ import {
   AlertDialogCloseButton
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
+import { useAccounts } from 'applesauce-react/hooks'
 import { generateGeohash } from '../utils/crypto'
 import { mapService } from '../services/mapService'
 
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
-  const { identities, locationEvents, clearAllLocations, publishLocationEvent, connectedRelays } = useNostr()
+  const { locationEvents, clearAllLocations, publishLocationEvent, connectedRelays } = useNostr()
+  const accounts = useAccounts()
   const toast = useToast()
   const cancelRef = useRef(null)
   const [geohash, setGeohash] = useState('')
@@ -49,8 +51,8 @@ export function LocationsPage() {
   const [locationName, setLocationName] = useState('') // d-tag for addressable events
   const [accuracy, setAccuracy] = useState<number>(100) // Default 100m accuracy
 
-  // Filter identities with nsec for sender selection
-  const identitiesWithNsec = identities.filter(id => id.nsec)
+  // All accounts have signing capability
+  const accountsWithSigningCapability = accounts
 
   const queryDeviceLocation = async () => {
     if (!navigator.geolocation) {
@@ -118,37 +120,17 @@ export function LocationsPage() {
     }
 
     try {
-      // Import necessary functions for creating Nostr events
-      const { npubToHex } = await import('../utils/crypto')
-      const nip44 = await import('nostr-tools/nip44')
-      const { getPublicKey } = await import('nostr-tools/pure')
-      const nip19 = await import('nostr-tools/nip19')
 
-      // Get sender identity with private key
-      const senderIdentity = identities.find(id => id.npub === selectedSender && id.nsec)
-      if (!senderIdentity || !senderIdentity.nsec) {
-        throw new Error('Sender identity not found or has no private key')
+      // Get sender account
+      const senderAccount = accounts.find(acc => acc.pubkey === selectedSender)
+      if (!senderAccount) {
+        throw new Error('Sender account not found')
       }
 
-      // Decode sender's private key
-      const senderSecretKeyDecoded = nip19.decode(senderIdentity.nsec)
-      if (senderSecretKeyDecoded.type !== 'nsec') {
-        throw new Error('Invalid nsec')
-      }
-      const senderSecretKey = senderSecretKeyDecoded.data as Uint8Array
-      const senderPublicKey = getPublicKey(senderSecretKey)
+      const senderPublicKey = senderAccount.pubkey
 
-      // Get receiver's public key
-      const receiverPublicKey = npubToHex(selectedReceiver)
-      if (!receiverPublicKey) {
-        throw new Error('Invalid receiver npub')
-      }
-
-      // Create conversation key for NIP-44 encryption
-      const conversationKey = nip44.v2.utils.getConversationKey(
-        senderSecretKey,
-        receiverPublicKey
-      )
+      // Get receiver's public key (selectedReceiver is already a pubkey)
+      const receiverPublicKey = selectedReceiver
 
       // Prepare location data tags
       const locationTags: string[][] = [['g', geohash]]
@@ -160,10 +142,63 @@ export function LocationsPage() {
       }
 
       // Encrypt location data
-      const encryptedContent = nip44.v2.encrypt(
-        JSON.stringify(locationTags),
-        conversationKey
-      )
+      let encryptedContent: string
+
+      // Use account's signer for encryption
+      if (senderAccount.signer.nip44?.encrypt) {
+        encryptedContent = await senderAccount.signer.nip44.encrypt(
+          receiverPublicKey,
+          JSON.stringify(locationTags)
+        )
+      } else if (senderAccount.type === 'amber-clipboard') {
+        // For Amber, use the clipboard API for encryption
+        const plaintext = JSON.stringify(locationTags)
+        const intentUrl = `nostrsigner:${encodeURIComponent(plaintext)}?pubkey=${receiverPublicKey}&compressionType=none&returnType=signature&type=nip44_encrypt`
+
+        // Store current clipboard content
+        const originalClipboard = await navigator.clipboard.readText().catch(() => '')
+
+        // Show toast to guide user
+        toast({
+          title: 'Opening Amber',
+          description: 'Please approve the encryption request in Amber',
+          status: 'info',
+          duration: 5000,
+        })
+
+        // Open Amber for encryption
+        window.location.href = intentUrl
+
+        // Wait for encrypted content to be copied to clipboard
+        encryptedContent = await new Promise((resolve, reject) => {
+          const checkClipboard = async () => {
+            const clipboardContent = await navigator.clipboard.readText().catch(() => '')
+
+            if (clipboardContent && clipboardContent !== originalClipboard) {
+              resolve(clipboardContent)
+            }
+          }
+
+          // Check clipboard when page regains focus
+          const handleFocus = () => {
+            setTimeout(checkClipboard, 500)
+          }
+
+          window.addEventListener('focus', handleFocus, { once: true })
+
+          // Timeout after 30 seconds
+          setTimeout(() => {
+            window.removeEventListener('focus', handleFocus)
+            reject(new Error('Amber encryption timeout'))
+          }, 30000)
+        })
+      } else if (senderAccount.type === 'simple') {
+        // For simple accounts, we need to use the signer's NIP-44 encryption if available
+        // or fall back to a different approach
+        throw new Error('Simple accounts do not support NIP-44 encryption directly. Use extension, bunker, or Amber.')
+      } else {
+        throw new Error('Account does not support NIP-44 encryption')
+      }
 
       // Create the Nostr event
       const dTag = locationName || '' // Empty string for single location per pubkey
@@ -183,7 +218,7 @@ export function LocationsPage() {
 
       // Publish the event to connected relays
       // The event will be added to local storage automatically when received back from the relay
-      await publishLocationEvent(unsignedEvent, connectedRelays)
+      await publishLocationEvent(unsignedEvent, connectedRelays, senderAccount.signer)
 
       toast({
         title: 'Location published',
@@ -325,9 +360,9 @@ export function LocationsPage() {
                 value={selectedSender}
                 onChange={(e) => setSelectedSender(e.target.value)}
               >
-                {identitiesWithNsec.map((identity) => (
-                  <option key={identity.id} value={identity.npub}>
-                    {identity.name || 'Unnamed'} ({identity.npub.slice(0, 8)}...)
+                {accountsWithSigningCapability.map((account) => (
+                  <option key={account.pubkey} value={account.pubkey}>
+                    {account.metadata?.name || 'Unnamed'} ({account.pubkey.slice(0, 8)}...)
                   </option>
                 ))}
               </Select>
@@ -337,9 +372,9 @@ export function LocationsPage() {
                 value={selectedReceiver}
                 onChange={(e) => setSelectedReceiver(e.target.value)}
               >
-                {identities.map((identity) => (
-                  <option key={identity.id} value={identity.npub}>
-                    {identity.name || 'Unnamed'} ({identity.npub.slice(0, 8)}...)
+                {accounts.map((account) => (
+                  <option key={account.pubkey} value={account.pubkey}>
+                    {account.metadata?.name || 'Unnamed'} ({account.pubkey.slice(0, 8)}...)
                   </option>
                 ))}
               </Select>

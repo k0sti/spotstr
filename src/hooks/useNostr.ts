@@ -1,207 +1,123 @@
-import { useState, useEffect } from 'react'
-import { Observable, BehaviorSubject } from 'rxjs'
-import { SimplePool } from 'nostr-tools/pool'
-import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
+import { useState, useEffect, useMemo } from 'react'
+import { EventStore } from 'applesauce-core'
+import { Relay } from 'applesauce-relay'
 import * as nip19 from 'nostr-tools/nip19'
-import * as nip44 from 'nostr-tools/nip44'
-import { LocationEvent, Identity } from '../types'
+import { LocationEvent } from '../types'
 import { mapService } from '../services/mapService'
 
-class NostrService {
-  private pool = new SimplePool()
-  private identities$ = new BehaviorSubject<Identity[]>([])
-  private locationEvents$ = new BehaviorSubject<LocationEvent[]>([])
-  private activeSubscriptions = new Map<string, any>()
-  private connectedRelays$ = new BehaviorSubject<string[]>([])
-  private relayStatus$ = new BehaviorSubject<Map<string, boolean>>(new Map())
+// Initialize Applesauce EventStore
+const eventStore = new EventStore()
+
+class NostrApplesauceService {
+  private locationEvents: LocationEvent[] = []
+  private connectedRelays: Map<string, Relay> = new Map()
+  private updateCallbacks: Set<() => void> = new Set()
+  private activeSubscriptions: Map<string, any> = new Map()
 
   constructor() {
-    // Load from localStorage on init
     this.loadFromStorage()
-    // Auto-connect to saved relay
     this.autoConnectToSavedRelay()
   }
 
-  // Identity management
-  async addIdentity(identity: Identity) {
-    const current = this.identities$.value
-    const updated = [...current, identity]
-    this.identities$.next(updated)
-    this.saveToStorage('identities', updated)
-    
-    // Check if any existing encrypted locations can now be decrypted
-    if (identity.nsec) {
-      await this.decryptExistingLocationsForIdentity(identity)
-    }
-  }
 
-  removeIdentity(id: string) {
-    const current = this.identities$.value
-    const updated = current.filter(i => i.id !== id)
-    this.identities$.next(updated)
-    this.saveToStorage('identities', updated)
-  }
-
-  getIdentities(): Observable<Identity[]> {
-    return this.identities$.asObservable()
-  }
-
-
-  // Location events - handle addressable events deduplication
+  // Location events management
   addLocationEvent(event: LocationEvent) {
-    const current = this.locationEvents$.value
-    
-    // For addressable events (30000-39999), deduplicate by kind, pubkey, and d-tag
-    // Since kind is 30473, we need to check for existing events with same sender and d-tag
+    // For addressable events, deduplicate by kind, pubkey, and d-tag
     const addressableKey = `${event.senderNpub}:${event.dTag || ''}`
-    
+
     // Remove any existing event with the same addressable key
-    const filtered = current.filter(e => {
+    this.locationEvents = this.locationEvents.filter(e => {
       const existingKey = `${e.senderNpub}:${e.dTag || ''}`
       return existingKey !== addressableKey
     })
-    
-    // Add the new event (it replaces any older version)
-    const updated = [...filtered, event]
-    
-    // Sort by created_at descending to show newest first
-    updated.sort((a, b) => b.created_at - a.created_at)
-    
-    this.locationEvents$.next(updated)
-    this.saveToStorage('locationEvents', updated)
-    
-    // Update map service with new locations
-    mapService.updateLocations(updated)
+
+    // Add the new event
+    this.locationEvents.push(event)
+
+    // Sort by created_at descending
+    this.locationEvents.sort((a, b) => b.created_at - a.created_at)
+
+    this.saveToStorage('locationEvents', this.locationEvents)
+    mapService.updateLocations(this.locationEvents)
+    this.notifyUpdate()
   }
 
-  getLocationEvents(): Observable<LocationEvent[]> {
-    return this.locationEvents$.asObservable()
+  getLocationEvents(): LocationEvent[] {
+    return this.locationEvents
   }
-  
-  getConnectedRelays(): Observable<string[]> {
-    return this.connectedRelays$.asObservable()
+
+  getConnectedRelays(): string[] {
+    return Array.from(this.connectedRelays.keys())
   }
-  
-  getRelayStatus(): Observable<Map<string, boolean>> {
-    return this.relayStatus$.asObservable()
-  }
-  
+
   isRelayConnected(relayUrl: string): boolean {
-    return this.relayStatus$.value.get(relayUrl) || false
+    return this.connectedRelays.has(relayUrl)
   }
 
-  // Storage helpers
-  private saveToStorage(key: string, data: any) {
-    localStorage.setItem(`spotstr_${key}`, JSON.stringify(data))
-  }
-
-  private loadFromStorage() {
-    try {
-      const identities = JSON.parse(localStorage.getItem('spotstr_identities') || '[]')
-      const locationEvents = JSON.parse(localStorage.getItem('spotstr_locationEvents') || '[]')
-      
-      this.identities$.next(identities)
-      this.locationEvents$.next(locationEvents)
-      
-      // Update map service with loaded locations
-      if (locationEvents.length > 0) {
-        mapService.updateLocations(locationEvents)
-      }
-    } catch (error) {
-      console.error('Error loading from storage:', error)
-    }
-  }
-
-  // Relay connection using nostr-tools
+  // Relay connection management using Applesauce
   async connectToRelay(relayUrl: string) {
     try {
-      // Close existing subscriptions for this relay
+      // Close existing subscription if any
       const existingSub = this.activeSubscriptions.get(relayUrl)
       if (existingSub) {
-        existingSub.close()
+        existingSub.unsubscribe()
       }
 
-      // Subscribe to location events (kind 30473 - encrypted location events per NIP-30473)
-      const sub = this.pool.subscribeMany(
-        [relayUrl],
-        [
-          {
-            kinds: [30473],
-            limit: 100
+      // Create new relay connection
+      const relay = new Relay(relayUrl)
+
+      // Store the relay connection
+      this.connectedRelays.set(relayUrl, relay)
+
+      // Create subscription for location events
+      const filter = {
+        kinds: [30473],
+        limit: 100
+      }
+
+      // Subscribe to events using req method which returns an Observable
+      const sub = relay.req([filter]).subscribe({
+        next: (response: any) => {
+          if (response === 'EOSE') {
+            console.log('End of stored events from', relayUrl)
+          } else if (response.kind) {
+            // It's an event
+            eventStore.add(response)
+            this.processLocationEvent(response)
           }
-        ],
-        {
-          onevent: (event) => {
-            this.processLocationEvent(event)
-          },
-          oneose: () => {
-            console.log('End of stored events')
-          }
+        },
+        error: (error: any) => {
+          console.error('Subscription error:', error)
         }
-      )
+      })
 
       this.activeSubscriptions.set(relayUrl, sub)
-      
-      // Update connection status
-      const currentStatus = new Map(this.relayStatus$.value)
-      currentStatus.set(relayUrl, true)
-      this.relayStatus$.next(currentStatus)
-      
-      const connected = Array.from(currentStatus.entries())
-        .filter(([_, status]) => status)
-        .map(([url, _]) => url)
-      this.connectedRelays$.next(connected)
-      
-      // Save the relay URL for auto-connect
       localStorage.setItem('spotstr_relayUrl', relayUrl)
-      
-      return sub
+      this.notifyUpdate()
+
+      return true
     } catch (error) {
       console.error('Failed to connect to relay:', error)
-      // Update status to disconnected on error
-      const currentStatus = new Map(this.relayStatus$.value)
-      currentStatus.set(relayUrl, false)
-      this.relayStatus$.next(currentStatus)
       throw error
     }
   }
 
-  // Publish location event to relays
-  async publishLocationEvent(event: any, relayUrls: string[]) {
+  // Publish location event using Applesauce
+  async publishLocationEvent(eventTemplate: any, relayUrls: string[], signer: any) {
     try {
-      // Find the identity that matches the event's pubkey for signing
-      const identities = this.identities$.value
-      const senderIdentity = identities.find(id => {
-        if (!id.nsec) return false
-        try {
-          const decoded = nip19.decode(id.nsec)
-          if (decoded.type === 'nsec') {
-            const pubkey = getPublicKey(decoded.data as Uint8Array)
-            return pubkey === event.pubkey
-          }
-        } catch {}
-        return false
-      })
-
-      if (!senderIdentity || !senderIdentity.nsec) {
-        throw new Error('No matching identity with secret key found for signing')
-      }
-
-      // Decode the nsec to get the secret key
-      const decoded = nip19.decode(senderIdentity.nsec)
-      if (decoded.type !== 'nsec') {
-        throw new Error('Invalid nsec')
-      }
-
-      const secretKey = decoded.data as Uint8Array
-
-      // Sign the event
-      const signedEvent = finalizeEvent(event, secretKey)
+      // Sign the event using the provided signer
+      const signedEvent = await signer.signEvent(eventTemplate)
 
       // Publish to relays
-      await Promise.allSettled(
-        this.pool.publish(relayUrls, signedEvent)
-      )
+      const publishPromises = relayUrls.map(url => {
+        const relay = this.connectedRelays.get(url)
+        if (relay) {
+          return relay.publish(signedEvent)
+        }
+        return Promise.reject(new Error(`Not connected to relay ${url}`))
+      })
+
+      await Promise.allSettled(publishPromises)
 
       console.log('Published event:', signedEvent)
       return signedEvent
@@ -212,132 +128,97 @@ class NostrService {
   }
 
   private async processLocationEvent(event: any) {
-    // Process incoming location event (NIP-location addressable events)
-    // Kind 30473 is an addressable event, deduplicated by pubkey + d-tag
-    
     const senderNpub = event.pubkey ? nip19.npubEncode(event.pubkey) : ''
     const dTag = event.tags?.find((t: any) => t[0] === 'd')?.[1] || ''
     const recipientPubkey = event.tags?.find((t: any) => t[0] === 'p')?.[1]
     const recipientNpub = recipientPubkey ? nip19.npubEncode(recipientPubkey) : ''
-    
-    // Create unique ID based on addressable event properties
+
     const addressableId = `30473:${event.pubkey}:${dTag}`
-    
+
     let decryptedGeohash = 'encrypted'
     let accuracy: number | undefined
     let nameFromContent: string | undefined
 
-    // Try to decrypt if we have the recipient's private key
-    if (recipientPubkey && event.content) {
-      const identities = this.identities$.value
-      const recipientIdentity = identities.find(id => {
-        if (!id.nsec) return false
-        try {
-          const decoded = nip19.decode(id.nsec)
-          if (decoded.type === 'nsec') {
-            const pubkey = getPublicKey(decoded.data as Uint8Array)
-            return pubkey === recipientPubkey
-          }
-        } catch {}
-        return false
-      })
+    // Decryption will be handled separately when needed
+    // Since we don't have access to accounts here, we can't automatically decrypt
 
-      if (recipientIdentity && recipientIdentity.nsec) {
-        try {
-          // Decrypt using NIP-44
-          const decoded = nip19.decode(recipientIdentity.nsec)
-          if (decoded.type === 'nsec') {
-            const secretKey = decoded.data as Uint8Array
-            const conversationKey = nip44.v2.utils.getConversationKey(
-              secretKey,
-              event.pubkey
-            )
-
-            const decryptedContent = nip44.v2.decrypt(
-              event.content,
-              conversationKey
-            )
-
-            // Parse the decrypted JSON array of tags
-            const contentTags = JSON.parse(decryptedContent) as Array<[string, string]>
-            const gTag = contentTags.find(t => t[0] === 'g')
-            const accuracyTag = contentTags.find(t => t[0] === 'accuracy')
-            const nameTag = contentTags.find(t => t[0] === 'name')
-
-            if (gTag && gTag[1]) {
-              decryptedGeohash = gTag[1]
-              console.log('Decrypted geohash:', decryptedGeohash)
-            }
-
-            if (accuracyTag && accuracyTag[1]) {
-              accuracy = parseInt(accuracyTag[1])
-            }
-
-            if (nameTag && nameTag[1]) {
-              nameFromContent = nameTag[1]
-              console.log('Found name in encrypted content:', nameFromContent)
-            }
-          }
-        } catch (error) {
-          console.error('Failed to decrypt location event:', error)
-        }
-      }
-    }
-    
     const locationEvent: LocationEvent = {
       id: addressableId,
       eventId: event.id,
       created_at: event.created_at,
       senderNpub,
-      senderPubkey: event.pubkey, // Store raw pubkey for decryption
+      senderPubkey: event.pubkey,
       receiverNpub: recipientNpub,
       dTag,
       geohash: decryptedGeohash,
       accuracy,
       expiry: event.tags?.find((t: any) => t[0] === 'expiration')?.[1],
-      name: nameFromContent || dTag || undefined, // Prefer name from encrypted content, then dTag
-      encryptedContent: decryptedGeohash === 'encrypted' ? event.content : undefined, // Store encrypted content
+      name: nameFromContent || dTag || undefined,
+      encryptedContent: decryptedGeohash === 'encrypted' ? event.content : undefined,
     }
-    
+
     this.addLocationEvent(locationEvent)
-    
-    // Update map service with all location events
-    mapService.updateLocations(this.locationEvents$.value)
   }
 
-  // Disconnect from specific relay
   disconnectRelay(relayUrl: string) {
+    const relay = this.connectedRelays.get(relayUrl)
+    if (relay) {
+      relay.close()
+      this.connectedRelays.delete(relayUrl)
+    }
+
     const sub = this.activeSubscriptions.get(relayUrl)
     if (sub) {
-      sub.close()
+      sub.unsubscribe()
       this.activeSubscriptions.delete(relayUrl)
-      
-      // Update connection status
-      const currentStatus = new Map(this.relayStatus$.value)
-      currentStatus.set(relayUrl, false)
-      this.relayStatus$.next(currentStatus)
-      
-      const connected = Array.from(currentStatus.entries())
-        .filter(([_, status]) => status)
-        .map(([url, _]) => url)
-      this.connectedRelays$.next(connected)
-      
-      console.log(`Disconnected from ${relayUrl}`)
     }
+
+    this.notifyUpdate()
+    console.log(`Disconnected from ${relayUrl}`)
   }
-  
-  // Disconnect from all relays
+
   disconnectAll() {
-    this.activeSubscriptions.forEach((sub, url) => {
-      sub.close()
+    this.connectedRelays.forEach((relay, url) => {
+      relay.close()
       console.log(`Disconnected from ${url}`)
     })
+    this.connectedRelays.clear()
+
+    this.activeSubscriptions.forEach((sub) => {
+      sub.unsubscribe()
+    })
     this.activeSubscriptions.clear()
-    this.relayStatus$.next(new Map())
-    this.connectedRelays$.next([])
+
+    this.notifyUpdate()
   }
-  
-  // Auto-connect to saved relay on startup
+
+  clearAllLocations() {
+    this.locationEvents = []
+    this.saveToStorage('locationEvents', [])
+    mapService.updateLocations([])
+    this.notifyUpdate()
+    console.log('Cleared all location events')
+  }
+
+  // Storage helpers
+  private saveToStorage(key: string, data: any) {
+    localStorage.setItem(`spotstr_${key}`, JSON.stringify(data))
+  }
+
+  private loadFromStorage() {
+    try {
+      const locationEvents = JSON.parse(localStorage.getItem('spotstr_locationEvents') || '[]')
+
+      this.locationEvents = locationEvents
+
+      if (locationEvents.length > 0) {
+        mapService.updateLocations(locationEvents)
+      }
+    } catch (error) {
+      console.error('Error loading from storage:', error)
+    }
+  }
+
   private async autoConnectToSavedRelay() {
     const savedRelayUrl = localStorage.getItem('spotstr_relayUrl')
     if (savedRelayUrl) {
@@ -349,148 +230,63 @@ class NostrService {
       }
     }
   }
-  
-  // Decrypt existing encrypted locations for a newly added identity
-  private async decryptExistingLocationsForIdentity(identity: Identity) {
-    if (!identity.nsec) return
-    
-    try {
-      const decoded = nip19.decode(identity.nsec)
-      if (decoded.type !== 'nsec') return
-      
-      const secretKey = decoded.data as Uint8Array
-      const publicKey = getPublicKey(secretKey)
-      
-      // Get all current location events
-      const currentLocations = this.locationEvents$.value
-      let hasUpdates = false
-      
-      // Check each location to see if it needs decryption
-      const updatedLocations = await Promise.all(
-        currentLocations.map(async (location) => {
-          // Skip if already decrypted or no encrypted content
-          if (location.geohash !== 'encrypted' || !location.encryptedContent) {
-            return location
-          }
-          
-          // Check if this location is for the new identity
-          const recipientPubkey = location.receiverNpub ? 
-            this.npubToHex(location.receiverNpub) : null
-            
-          if (recipientPubkey !== publicKey) return location
-          
-          // Try to decrypt the location
-          try {
-            if (location.senderPubkey && location.encryptedContent) {
-              const conversationKey = nip44.v2.utils.getConversationKey(
-                secretKey,
-                location.senderPubkey
-              )
-              
-              const decryptedContent = nip44.v2.decrypt(
-                location.encryptedContent,
-                conversationKey
-              )
-              
-              // Parse the decrypted JSON array of tags
-              const contentTags = JSON.parse(decryptedContent) as Array<[string, string]>
-              const gTag = contentTags.find(t => t[0] === 'g')
-              const accuracyTag = contentTags.find(t => t[0] === 'accuracy')
-              const nameTag = contentTags.find(t => t[0] === 'name')
 
-              if (gTag && gTag[1]) {
-                console.log('Decrypted existing location:', location.id, 'geohash:', gTag[1])
-                hasUpdates = true
 
-                return {
-                  ...location,
-                  geohash: gTag[1],
-                  accuracy: accuracyTag ? parseInt(accuracyTag[1]) : location.accuracy,
-                  name: nameTag?.[1] || location.name // Update name if found in encrypted content
-                }
-              }
-            }
-            return location
-          } catch (error) {
-            console.error('Failed to decrypt location:', error)
-            return location
-          }
-        })
-      )
-      
-      if (hasUpdates) {
-        // Update the location events with decrypted data
-        this.locationEvents$.next(updatedLocations)
-        this.saveToStorage('locationEvents', updatedLocations)
-        
-        // Update map service with newly decrypted locations
-        mapService.updateLocations(updatedLocations)
-        
-        console.log('Updated locations with decrypted data')
-      }
-    } catch (error) {
-      console.error('Error decrypting locations for new identity:', error)
+  // Update notification system
+  subscribe(callback: () => void) {
+    this.updateCallbacks.add(callback)
+    return () => {
+      this.updateCallbacks.delete(callback)
     }
   }
-  
-  // Clear all location events
-  clearAllLocations() {
-    this.locationEvents$.next([])
-    this.saveToStorage('locationEvents', [])
-    
-    // Clear locations from map service
-    mapService.updateLocations([])
-    
-    console.log('Cleared all location events')
-  }
-  
-  // Helper to convert npub to hex
-  private npubToHex(npub: string): string | null {
-    try {
-      const decoded = nip19.decode(npub)
-      if (decoded.type === 'npub') {
-        return decoded.data as string
-      }
-    } catch {}
-    return null
+
+  private notifyUpdate() {
+    this.updateCallbacks.forEach(cb => cb())
   }
 }
 
-const nostrService = new NostrService()
+// Create singleton instance
+const nostrService = new NostrApplesauceService()
 
+// Custom hook for using the Nostr service
 export function useNostr() {
-  const [identities, setIdentities] = useState<Identity[]>([])
-  const [locationEvents, setLocationEvents] = useState<LocationEvent[]>([])
-  const [connectedRelays, setConnectedRelays] = useState<string[]>([])
-  const [relayStatus, setRelayStatus] = useState<Map<string, boolean>>(new Map())
+  const [locationEvents, setLocationEvents] = useState<LocationEvent[]>(nostrService.getLocationEvents())
+  const [connectedRelays, setConnectedRelays] = useState<string[]>(nostrService.getConnectedRelays())
 
   useEffect(() => {
-    const identitiesSub = nostrService.getIdentities().subscribe(setIdentities)
-    const locationEventsSub = nostrService.getLocationEvents().subscribe(setLocationEvents)
-    const connectedRelaysSub = nostrService.getConnectedRelays().subscribe(setConnectedRelays)
-    const relayStatusSub = nostrService.getRelayStatus().subscribe(setRelayStatus)
-
-    return () => {
-      identitiesSub.unsubscribe()
-      locationEventsSub.unsubscribe()
-      connectedRelaysSub.unsubscribe()
-      relayStatusSub.unsubscribe()
+    const updateState = () => {
+      setLocationEvents(nostrService.getLocationEvents())
+      setConnectedRelays(nostrService.getConnectedRelays())
     }
+
+    // Subscribe to updates
+    const unsubscribe = nostrService.subscribe(updateState)
+
+    // Initial state
+    updateState()
+
+    return unsubscribe
   }, [])
 
+  const relayStatus = useMemo(() => {
+    const status = new Map<string, boolean>()
+    connectedRelays.forEach(url => status.set(url, true))
+    return status
+  }, [connectedRelays])
+
   return {
-    identities,
     locationEvents,
     connectedRelays,
     relayStatus,
-    addIdentity: (identity: Identity) => nostrService.addIdentity(identity),
-    removeIdentity: (id: string) => nostrService.removeIdentity(id),
     addLocationEvent: (event: LocationEvent) => nostrService.addLocationEvent(event),
     connectToRelay: (url: string) => nostrService.connectToRelay(url),
     disconnectRelay: (url: string) => nostrService.disconnectRelay(url),
     isRelayConnected: (url: string) => nostrService.isRelayConnected(url),
-    publishLocationEvent: (event: any, relayUrls: string[]) => nostrService.publishLocationEvent(event, relayUrls),
+    publishLocationEvent: (event: any, relayUrls: string[], signer: any) => nostrService.publishLocationEvent(event, relayUrls, signer),
     disconnectAll: () => nostrService.disconnectAll(),
     clearAllLocations: () => nostrService.clearAllLocations(),
   }
 }
+
+// Export the event store for advanced usage
+export { eventStore }

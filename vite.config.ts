@@ -16,6 +16,8 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
   },
   server: {
-    port: 3000
+    port: 3000,
+    host: true,
+    allowedHosts: ['precision.bilberry-tetra.ts.net']
   }
 })
