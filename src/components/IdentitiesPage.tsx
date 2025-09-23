@@ -25,14 +25,109 @@ import {
   Tooltip,
   ButtonGroup,
   Link,
-  Divider
+  Divider,
+  Spinner
 } from '@chakra-ui/react'
 import { useAccountManager, useAccounts } from 'applesauce-react/hooks'
 import { ExtensionAccount, SimpleAccount, NostrConnectAccount } from 'applesauce-accounts/accounts'
 import { ExtensionSigner, SimpleSigner, NostrConnectSigner } from 'applesauce-signers'
+import { npubEncode } from 'nostr-tools/nip19'
 
 // Check if we're on Android
 const IS_WEB_ANDROID = /android/i.test(navigator.userAgent)
+
+// Helper functions
+const getAccountTypeBadgeColor = (type: string) => {
+  switch (type) {
+    case 'simple': return 'green'
+    case 'extension': return 'orange'
+    case 'amber-clipboard': return 'yellow'
+    case 'nostr-connect': return 'teal'
+    default: return 'gray'
+  }
+}
+
+const getAccountTypeLabel = (type: string) => {
+  switch (type) {
+    case 'simple': return 'Local'
+    case 'extension': return 'Extension'
+    case 'amber-clipboard': return 'Amber'
+    case 'nostr-connect': return 'Bunker'
+    default: return type
+  }
+}
+
+// Account Row Component
+function AccountRow({ account, manager, onDelete, onCopy }: {
+  account: any
+  manager: any
+  onDelete: (account: any) => void
+  onCopy: (text: string, label: string) => void
+}) {
+  const npubDisplay = useMemo(() => {
+    try {
+      const npub = npubEncode(account.pubkey)
+      return npub.slice(0, 12) + '...' + npub.slice(-4)
+    } catch {
+      // Fallback to showing hex if nip19 not available
+      return account.pubkey.slice(0, 8) + '...'
+    }
+  }, [account.pubkey])
+
+  return (
+    <Tr>
+      <Td>
+        <Badge colorScheme={getAccountTypeBadgeColor(account.type)}>
+          {getAccountTypeLabel(account.type)}
+        </Badge>
+      </Td>
+      <Td>
+        <HStack spacing={1}>
+          <Text fontSize="xs" fontFamily="mono">
+            {npubDisplay}
+          </Text>
+          <Tooltip label="Copy npub">
+            <IconButton
+              size="xs"
+              aria-label="Copy npub"
+              icon={<span>📋</span>}
+              onClick={() => {
+                try {
+                  const npub = npubEncode(account.pubkey)
+                  onCopy(npub, 'Public key')
+                } catch {
+                  onCopy(account.pubkey, 'Public key')
+                }
+              }}
+            />
+          </Tooltip>
+        </HStack>
+      </Td>
+      <Td>
+        {manager.active === account ? (
+          <Badge colorScheme="green">Active</Badge>
+        ) : (
+          <Button
+            size="xs"
+            onClick={() => manager.setActive(account)}
+          >
+            Set Active
+          </Button>
+        )}
+      </Td>
+      <Td>
+        <IconButton
+          size="xs"
+          aria-label="Delete account"
+          icon={<span>🗑️</span>}
+          colorScheme="red"
+          variant="ghost"
+          onClick={() => onDelete(account)}
+        />
+      </Td>
+    </Tr>
+  )
+}
 
 export function IdentitiesPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
@@ -45,6 +140,7 @@ export function IdentitiesPage() {
   const [isConnectingBunker, setIsConnectingBunker] = useState(false)
   const [amberSigner, setAmberSigner] = useState<NostrConnectSigner | null>(null)
   const [showAmberModal, setShowAmberModal] = useState(false)
+  const [isAmberConnecting, setIsAmberConnecting] = useState(false)
 
   // Extension login
   const handleWebExtensionLogin = async () => {
@@ -104,9 +200,9 @@ export function IdentitiesPage() {
       return
     }
 
-    // Create NostrConnect signer for Amber
+    // Create NostrConnect signer for Amber with better relay configuration
     const signer = new NostrConnectSigner({
-      relays: ['wss://relay.nsecbunker.com']
+      relays: ['wss://relay.nsec.app', 'wss://relay.damus.io']
     })
 
     setAmberSigner(signer)
@@ -129,34 +225,59 @@ export function IdentitiesPage() {
   useEffect(() => {
     if (!amberSigner) return
 
+    let cleanup = false
+
     // Start listening for the signer to connect
-    amberSigner.waitForSigner().then(async () => {
-      const pubkey = await amberSigner.getPublicKey()
+    const connectSigner = async () => {
+      try {
+        console.log('Waiting for Amber to connect...')
+        setIsAmberConnecting(true)
+        await amberSigner.waitForSigner()
 
-      const account = new NostrConnectAccount(pubkey, amberSigner)
-      manager.addAccount(account)
-      manager.setActive(account)
+        if (cleanup) return
 
-      toast({
-        title: 'Amber connected',
-        description: 'Successfully connected to Amber signer',
-        status: 'success',
-        duration: 3000,
-      })
+        console.log('Amber connected, getting public key...')
+        const pubkey = await amberSigner.getPublicKey()
+        console.log('Got public key:', pubkey)
 
-      setShowAmberModal(false)
-      setAmberSigner(null)
-    }).catch((error) => {
-      console.error('Amber connection error:', error)
-    })
+        const account = new NostrConnectAccount(pubkey, amberSigner)
+        manager.addAccount(account)
+        manager.setActive(account)
+
+        toast({
+          title: 'Amber connected',
+          description: 'Successfully connected to Amber signer',
+          status: 'success',
+          duration: 3000,
+        })
+
+        setShowAmberModal(false)
+        setAmberSigner(null)
+        setIsAmberConnecting(false)
+      } catch (error) {
+        console.error('Amber connection error:', error)
+        setIsAmberConnecting(false)
+        if (!cleanup) {
+          toast({
+            title: 'Connection failed',
+            description: 'Failed to connect to Amber. Please try again.',
+            status: 'error',
+            duration: 5000,
+          })
+        }
+      }
+    }
+
+    connectSigner()
 
     return () => {
+      cleanup = true
       // Clean up if modal is closed without connection
-      if (!amberSigner.isConnected) {
+      if (amberSigner && !amberSigner.isConnected) {
         amberSigner.close()
       }
     }
-  }, [amberSigner, manager])
+  }, [amberSigner, manager, toast])
 
   // Bunker connect
   const handleBunkerConnect = async () => {
@@ -312,25 +433,6 @@ export function IdentitiesPage() {
     }
   }
 
-  const getAccountTypeBadgeColor = (type: string) => {
-    switch (type) {
-      case 'simple': return 'green'
-      case 'extension': return 'orange'
-      case 'amber-clipboard': return 'yellow'
-      case 'nostr-connect': return 'teal'
-      default: return 'gray'
-    }
-  }
-
-  const getAccountTypeLabel = (type: string) => {
-    switch (type) {
-      case 'simple': return 'Local'
-      case 'extension': return 'Extension'
-      case 'amber-clipboard': return 'Amber'
-      case 'nostr-connect': return 'Bunker'
-      default: return type
-    }
-  }
 
   return (
     <Box>
@@ -349,59 +451,15 @@ export function IdentitiesPage() {
           </Tr>
         </Thead>
         <Tbody>
-          {accountsList.map((account) => {
-            const npubEncode = (pubkey: string) => {
-              // Simple npub encoding for display
-              return 'npub1' + pubkey.slice(0, 8) + '...'
-            }
-
-            return (
-              <Tr key={account.pubkey}>
-                <Td>
-                  <Badge colorScheme={getAccountTypeBadgeColor(account.type)}>
-                    {getAccountTypeLabel(account.type)}
-                  </Badge>
-                </Td>
-                <Td>
-                  <HStack spacing={1}>
-                    <Text fontSize="xs" fontFamily="mono">
-                      {npubEncode(account.pubkey)}
-                    </Text>
-                    <Tooltip label="Copy pubkey">
-                      <IconButton
-                        size="xs"
-                        aria-label="Copy pubkey"
-                        icon={<span>📋</span>}
-                        onClick={() => copyToClipboard(account.pubkey, 'Public key')}
-                      />
-                    </Tooltip>
-                  </HStack>
-                </Td>
-                <Td>
-                  {manager.active === account ? (
-                    <Badge colorScheme="green">Active</Badge>
-                  ) : (
-                    <Button
-                      size="xs"
-                      onClick={() => manager.setActive(account)}
-                    >
-                      Set Active
-                    </Button>
-                  )}
-                </Td>
-                <Td>
-                  <IconButton
-                    size="xs"
-                    aria-label="Delete account"
-                    icon={<span>🗑️</span>}
-                    colorScheme="red"
-                    variant="ghost"
-                    onClick={() => handleDeleteAccount(account)}
-                  />
-                </Td>
-              </Tr>
-            )
-          })}
+          {accountsList.map((account) => (
+            <AccountRow
+              key={account.pubkey}
+              account={account}
+              manager={manager}
+              onDelete={handleDeleteAccount}
+              onCopy={copyToClipboard}
+            />
+          ))}
         </Tbody>
       </Table>
 
@@ -566,9 +624,12 @@ export function IdentitiesPage() {
                 </Text>
               </Box>
 
-              <Text fontSize="xs" color="gray.500" textAlign="center">
-                Waiting for connection...
-              </Text>
+              <HStack fontSize="xs" color="gray.500" justify="center" spacing={2}>
+                {isAmberConnecting && <Spinner size="sm" />}
+                <Text>
+                  {isAmberConnecting ? 'Connecting...' : 'Waiting for connection...'}
+                </Text>
+              </HStack>
             </VStack>
           </ModalBody>
         </ModalContent>
