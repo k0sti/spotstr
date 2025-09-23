@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Box,
   Button,
@@ -28,8 +28,8 @@ import {
   Divider
 } from '@chakra-ui/react'
 import { useAccountManager, useAccounts } from 'applesauce-react/hooks'
-import { ExtensionAccount, SimpleAccount, NostrConnectAccount, AmberClipboardAccount } from 'applesauce-accounts/accounts'
-import { ExtensionSigner, SimpleSigner, NostrConnectSigner, AmberClipboardSigner } from 'applesauce-signers'
+import { ExtensionAccount, SimpleAccount, NostrConnectAccount } from 'applesauce-accounts/accounts'
+import { ExtensionSigner, SimpleSigner, NostrConnectSigner } from 'applesauce-signers'
 
 // Check if we're on Android
 const IS_WEB_ANDROID = /android/i.test(navigator.userAgent)
@@ -43,6 +43,8 @@ export function IdentitiesPage() {
   const [keyInput, setKeyInput] = useState('')
   const [bunkerUri, setBunkerUri] = useState('')
   const [isConnectingBunker, setIsConnectingBunker] = useState(false)
+  const [amberSigner, setAmberSigner] = useState<NostrConnectSigner | null>(null)
+  const [showAmberModal, setShowAmberModal] = useState(false)
 
   // Extension login
   const handleWebExtensionLogin = async () => {
@@ -90,30 +92,49 @@ export function IdentitiesPage() {
     }
   }
 
-  // Amber login (for Android)
-  const handleAmberLogin = async () => {
-    try {
-      if (!IS_WEB_ANDROID) {
-        toast({
-          title: 'Android only',
-          description: 'Amber signer is only available on Android devices',
-          status: 'info',
-          duration: 4000,
-        })
-        return
-      }
+  // Amber login (for Android) - show modal with QR code
+  const handleAmberLogin = () => {
+    if (!IS_WEB_ANDROID) {
+      toast({
+        title: 'Android only',
+        description: 'Amber signer is only available on Android devices',
+        status: 'info',
+        duration: 4000,
+      })
+      return
+    }
 
-      const signer = new AmberClipboardSigner()
-      const pubkey = await signer.getPublicKey()
+    // Create NostrConnect signer for Amber
+    const signer = new NostrConnectSigner({
+      relays: ['wss://relay.nsecbunker.com']
+    })
 
-      const account =
-        manager.accounts.find((a) => a.type === AmberClipboardAccount.type && a.pubkey === pubkey) ??
-        new AmberClipboardAccount(pubkey, signer)
+    setAmberSigner(signer)
+    setShowAmberModal(true)
+    onClose() // Close the main modal
+  }
 
-      if (!manager.accounts.includes(account)) {
-        manager.addAccount(account)
-      }
+  // Connection URI for Amber
+  const amberConnectionURI = useMemo(() => {
+    if (!amberSigner) return ''
 
+    return amberSigner.getNostrConnectURI({
+      name: 'Spotstr',
+      url: window.location.origin,
+      image: new URL('/vite.svg', window.location.origin).toString(),
+    })
+  }, [amberSigner])
+
+  // Handle Amber connection
+  useEffect(() => {
+    if (!amberSigner) return
+
+    // Start listening for the signer to connect
+    amberSigner.waitForSigner().then(async () => {
+      const pubkey = await amberSigner.getPublicKey()
+
+      const account = new NostrConnectAccount(pubkey, amberSigner)
+      manager.addAccount(account)
       manager.setActive(account)
 
       toast({
@@ -123,17 +144,19 @@ export function IdentitiesPage() {
         duration: 3000,
       })
 
-      onClose()
-    } catch (error) {
-      console.error('Amber login error:', error)
-      toast({
-        title: 'Amber error',
-        description: error instanceof Error ? error.message : 'Failed to connect to Amber',
-        status: 'error',
-        duration: 5000,
-      })
+      setShowAmberModal(false)
+      setAmberSigner(null)
+    }).catch((error) => {
+      console.error('Amber connection error:', error)
+    })
+
+    return () => {
+      // Clean up if modal is closed without connection
+      if (!amberSigner.isConnected) {
+        amberSigner.close()
+      }
     }
-  }
+  }, [amberSigner, manager])
 
   // Bunker connect
   const handleBunkerConnect = async () => {
@@ -486,6 +509,66 @@ export function IdentitiesPage() {
                   🔒 Connect Remote Signer (NIP-46)
                 </Button>
               </VStack>
+            </VStack>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Amber Connection Modal */}
+      <Modal isOpen={showAmberModal} onClose={() => {
+        setShowAmberModal(false)
+        if (amberSigner && !amberSigner.isConnected) {
+          amberSigner.close()
+        }
+        setAmberSigner(null)
+      }} size="md">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Connect with Amber</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Text fontSize="sm" color="gray.600">
+                Click the link below or scan the QR code with Amber
+              </Text>
+
+              {/* Connection URI as clickable link */}
+              <Box>
+                <Link
+                  href={amberConnectionURI}
+                  color="blue.500"
+                  fontSize="sm"
+                  wordBreak="break-all"
+                  display="block"
+                  p={3}
+                  border="1px solid"
+                  borderColor="gray.200"
+                  borderRadius="md"
+                  _hover={{ bg: 'gray.50' }}
+                >
+                  Click here to open Amber
+                </Link>
+              </Box>
+
+              {/* QR Code placeholder */}
+              <Box
+                p={4}
+                border="1px solid"
+                borderColor="gray.200"
+                borderRadius="md"
+                textAlign="center"
+              >
+                <Text fontSize="xs" color="gray.500">
+                  QR Code (install QR library to display)
+                </Text>
+                <Text fontSize="xs" color="gray.400" mt={2}>
+                  {amberConnectionURI.slice(0, 50)}...
+                </Text>
+              </Box>
+
+              <Text fontSize="xs" color="gray.500" textAlign="center">
+                Waiting for connection...
+              </Text>
             </VStack>
           </ModalBody>
         </ModalContent>
