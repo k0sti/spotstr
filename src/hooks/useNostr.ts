@@ -131,8 +131,8 @@ class NostrApplesauceService {
     try {
       // Find the identity for signing
       const senderIdentity = this.identities.find(id => {
-        // For extension identities, match by npub
-        if (id.source === 'extension') {
+        // For extension/amber/bunker identities, match by npub
+        if (id.source === 'extension' || id.source === 'amber' || id.source === 'bunker') {
           try {
             const decoded = nip19.decode(id.npub)
             if (decoded.type === 'npub') {
@@ -169,6 +169,62 @@ class NostrApplesauceService {
 
         // Sign the event using the browser extension
         signedEvent = await window.nostr.signEvent(eventTemplate)
+      } else if (senderIdentity.source === 'amber') {
+        // For Amber, we need to use the clipboard API
+        const eventJson = JSON.stringify(eventTemplate)
+        const intentUrl = `nostrsigner:${encodeURIComponent(eventJson)}?compressionType=none&returnType=event&type=sign_event`
+
+        // Store current clipboard content
+        const originalClipboard = await navigator.clipboard.readText().catch(() => '')
+
+        // Open Amber for signing
+        window.location.href = intentUrl
+
+        // Wait for the signed event to be copied to clipboard
+        return new Promise((resolve, reject) => {
+          const checkClipboard = async () => {
+            const clipboardContent = await navigator.clipboard.readText().catch(() => '')
+
+            if (clipboardContent && clipboardContent !== originalClipboard) {
+              try {
+                // Try to parse as JSON (signed event)
+                const parsedEvent = JSON.parse(clipboardContent)
+                if (parsedEvent.sig) {
+                  resolve(parsedEvent)
+                  return parsedEvent
+                }
+              } catch {
+                // Not JSON, might be waiting for result
+              }
+            }
+          }
+
+          // Check clipboard when page regains focus
+          const handleFocus = () => {
+            setTimeout(checkClipboard, 500)
+          }
+
+          window.addEventListener('focus', handleFocus, { once: true })
+
+          // Timeout after 30 seconds
+          setTimeout(() => {
+            window.removeEventListener('focus', handleFocus)
+            reject(new Error('Amber signing timeout'))
+          }, 30000)
+        })
+      } else if (senderIdentity.source === 'bunker') {
+        // Use NostrConnect bunker signer
+        if (!window.nostrSigners) {
+          throw new Error('No bunker signers available')
+        }
+
+        const signer = window.nostrSigners.get(senderIdentity.id)
+        if (!signer) {
+          throw new Error('Bunker signer not found. Please reconnect.')
+        }
+
+        // Sign the event using the bunker signer
+        signedEvent = await signer.signEvent(eventTemplate)
       } else {
         // Use nsec for signing
         if (!senderIdentity.nsec) {

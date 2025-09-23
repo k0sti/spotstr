@@ -28,4 +28,5 @@ interface Nostr {
 
 interface Window {
   nostr?: Nostr
+  nostrSigners?: Map<string, any> // Store NostrConnect signers
 }

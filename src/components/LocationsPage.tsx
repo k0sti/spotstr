@@ -49,9 +49,11 @@ export function LocationsPage() {
   const [locationName, setLocationName] = useState('') // d-tag for addressable events
   const [accuracy, setAccuracy] = useState<number>(100) // Default 100m accuracy
 
-  // Filter identities with nsec for sender selection
-  // Identities that can sign (have nsec or are from extension)
-  const identitiesWithSigningCapability = identities.filter(id => id.nsec || id.source === 'extension')
+  // Filter identities with signing capability for sender selection
+  // Identities that can sign (have nsec or are from extension/amber/bunker)
+  const identitiesWithSigningCapability = identities.filter(id =>
+    id.nsec || id.source === 'extension' || id.source === 'amber' || id.source === 'bunker'
+  )
 
   const queryDeviceLocation = async () => {
     if (!navigator.geolocation) {
@@ -135,8 +137,8 @@ export function LocationsPage() {
       let senderPublicKey: string
 
       // Handle different identity sources
-      if (senderIdentity.source === 'extension') {
-        // For extension identities, we'll use window.nostr for encryption
+      if (senderIdentity.source === 'extension' || senderIdentity.source === 'amber' || senderIdentity.source === 'bunker') {
+        // For extension/amber/bunker identities, we'll use appropriate external signers
         const decoded = nip19.decode(senderIdentity.npub)
         if (decoded.type !== 'npub') {
           throw new Error('Invalid npub')
@@ -182,6 +184,68 @@ export function LocationsPage() {
           receiverPublicKey,
           JSON.stringify(locationTags)
         )
+      } else if (senderIdentity.source === 'bunker') {
+        // Use bunker signer for encryption
+        if (!window.nostrSigners) {
+          throw new Error('No bunker signers available')
+        }
+
+        const signer = window.nostrSigners.get(senderIdentity.id)
+        if (!signer) {
+          throw new Error('Bunker signer not found. Please reconnect.')
+        }
+
+        // Use NIP-44 encryption through the bunker signer
+        if (!signer.nip44?.encrypt) {
+          throw new Error('Bunker does not support NIP-44 encryption')
+        }
+
+        encryptedContent = await signer.nip44.encrypt(
+          receiverPublicKey,
+          JSON.stringify(locationTags)
+        )
+      } else if (senderIdentity.source === 'amber') {
+        // For Amber, use the clipboard API for encryption
+        const plaintext = JSON.stringify(locationTags)
+        const intentUrl = `nostrsigner:${encodeURIComponent(plaintext)}?pubkey=${receiverPublicKey}&compressionType=none&returnType=signature&type=nip44_encrypt`
+
+        // Store current clipboard content
+        const originalClipboard = await navigator.clipboard.readText().catch(() => '')
+
+        // Show toast to guide user
+        toast({
+          title: 'Opening Amber',
+          description: 'Please approve the encryption request in Amber',
+          status: 'info',
+          duration: 5000,
+        })
+
+        // Open Amber for encryption
+        window.location.href = intentUrl
+
+        // Wait for encrypted content to be copied to clipboard
+        encryptedContent = await new Promise((resolve, reject) => {
+          const checkClipboard = async () => {
+            const clipboardContent = await navigator.clipboard.readText().catch(() => '')
+
+            if (clipboardContent && clipboardContent !== originalClipboard) {
+              resolve(clipboardContent)
+            }
+          }
+
+          // Check clipboard when page regains focus
+          const handleFocus = () => {
+            setTimeout(checkClipboard, 500)
+          }
+
+          window.addEventListener('focus', handleFocus, { once: true })
+
+          // Timeout after 30 seconds
+          setTimeout(() => {
+            window.removeEventListener('focus', handleFocus)
+            reject(new Error('Amber encryption timeout'))
+          }, 30000)
+        })
       } else {
         // Use local encryption with conversation key
         const conversationKey = nip44.v2.utils.getConversationKey(

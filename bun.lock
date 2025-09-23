@@ -15,6 +15,7 @@
         "applesauce-factory": "^3.1.0",
         "applesauce-react": "^3.1.0",
         "applesauce-relay": "^3.1.0",
+        "applesauce-signers": "^3.1.0",
         "framer-motion": "^10.16.4",
         "leaflet": "^1.9.4",
         "nostr-tools": "^2.16.2",
