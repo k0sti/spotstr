@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box } from '@chakra-ui/react'
+import { Box, IconButton, Tooltip } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 
@@ -29,12 +29,17 @@ export function MapComponent() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const rectanglesRef = useRef<Map<string, L.Rectangle>>(new Map())
   const [locations, setLocations] = useState<MapLocation[]>([])
+  const [isQueryingLocation, setIsQueryingLocation] = useState(false)
+  const watchIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
 
     // Initialize Leaflet map - center at UTC0 (0 longitude) with a wide view showing most of the world
-    mapRef.current = L.map(mapContainerRef.current).setView([40, 0], 3)
+    // Disable default zoom controls
+    mapRef.current = L.map(mapContainerRef.current, {
+      zoomControl: false
+    }).setView([40, 0], 3)
 
     // Add OpenStreetMap tiles
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -148,12 +153,100 @@ export function MapComponent() {
     })
   }, [locations])
 
+  const toggleLocationQuery = () => {
+    if (isQueryingLocation) {
+      // Stop querying location
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+        watchIdRef.current = null
+      }
+      setIsQueryingLocation(false)
+    } else {
+      // Start querying location
+      if ('geolocation' in navigator) {
+        setIsQueryingLocation(true)
+
+        // Get current position once
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            if (mapRef.current) {
+              mapRef.current.setView(
+                [position.coords.latitude, position.coords.longitude],
+                15,
+                { animate: true, duration: 0.5 }
+              )
+            }
+          },
+          (error) => {
+            console.error('Error getting location:', error)
+            setIsQueryingLocation(false)
+          },
+          { enableHighAccuracy: true }
+        )
+
+        // Watch for position changes
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          (position) => {
+            if (mapRef.current) {
+              mapRef.current.setView(
+                [position.coords.latitude, position.coords.longitude],
+                mapRef.current.getZoom(),
+                { animate: true, duration: 0.5 }
+              )
+            }
+          },
+          (error) => {
+            console.error('Error watching location:', error)
+          },
+          { enableHighAccuracy: true }
+        )
+      } else {
+        console.error('Geolocation is not supported by this browser')
+      }
+    }
+  }
+
+  // Clean up location watch on unmount
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+      }
+    }
+  }, [])
+
   return (
-    <Box 
-      ref={mapContainerRef}
-      data-testid="map-container"
-      width="100%"
-      height="100vh"
-    />
+    <Box position="relative" width="100%" height="100vh">
+      <Box
+        ref={mapContainerRef}
+        data-testid="map-container"
+        width="100%"
+        height="100%"
+      />
+
+      {/* Location Query Button */}
+      <Tooltip
+        label={isQueryingLocation ? 'Stop location tracking' : 'Track my location'}
+        placement="left"
+      >
+        <IconButton
+          aria-label="Query Location"
+          icon={<span>{isQueryingLocation ? '📍' : '📍'}</span>}
+          size="md"
+          position="absolute"
+          top="80px"
+          right="4"
+          zIndex="1000"
+          onClick={toggleLocationQuery}
+          colorScheme={isQueryingLocation ? 'blue' : 'gray'}
+          variant={isQueryingLocation ? 'solid' : 'outline'}
+          bg={isQueryingLocation ? 'blue.500' : 'white'}
+          _hover={{
+            transform: 'scale(1.05)',
+            bg: isQueryingLocation ? 'blue.600' : 'gray.100'
+          }}
+        />
+      </Tooltip>
+    </Box>
   )
 }

@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { IdentitiesPage } from './components/IdentitiesPage'
 import { LocationsPage } from './components/LocationsPage'
 import { SettingsPage } from './components/SettingsPage'
-import { EventLogPage } from './components/EventLogPage'
+import { ContactsPage } from './components/ContactsPage'
 import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
 import { AccountsProvider } from 'applesauce-react'
@@ -20,7 +20,7 @@ import {
   Image
 } from '@chakra-ui/react'
 
-type PageType = 'identities' | 'locations' | 'settings' | 'eventlog' | null
+type PageType = 'identities' | 'locations' | 'settings' | 'contacts' | null
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageType>(null)
@@ -84,8 +84,8 @@ function AppContent() {
         return <LocationsPage />
       case 'settings':
         return <SettingsPage />
-      case 'eventlog':
-        return <EventLogPage />
+      case 'contacts':
+        return <ContactsPage />
       default:
         return <IdentitiesPage />
     }
@@ -164,11 +164,11 @@ function AppContent() {
                 variant={currentPage === 'settings' ? 'solid' : 'outline'}
               />
               <IconButton
-                aria-label="Event Log"
-                icon={<span>📋</span>}
+                aria-label="Contacts"
+                icon={<span>🔗</span>}
                 size="sm"
-                onClick={() => handlePageClick('eventlog')}
-                variant={currentPage === 'eventlog' ? 'solid' : 'outline'}
+                onClick={() => handlePageClick('contacts')}
+                variant={currentPage === 'contacts' ? 'solid' : 'outline'}
               />
               <Link href="https://github.com/k0sti/spotstr" isExternal>
                 <IconButton
