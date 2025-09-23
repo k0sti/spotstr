@@ -22,101 +22,140 @@ import {
   useToast,
   Badge,
   HStack,
-  Tooltip
+  Tooltip,
+  ButtonGroup,
+  Link,
+  Divider
 } from '@chakra-ui/react'
-import { useNostr } from '../hooks/useNostr'
-import { generateNostrKeyPair, validateNsec, validateNpub, deriveNpubFromNsec } from '../utils/crypto'
-import { Identity } from '../types'
-import { NostrConnectSigner } from 'applesauce-signers'
+import { useAccountManager, useAccounts } from 'applesauce-react/hooks'
+import { ExtensionAccount, SimpleAccount, NostrConnectAccount, AmberClipboardAccount } from 'applesauce-accounts/accounts'
+import { ExtensionSigner, SimpleSigner, NostrConnectSigner, AmberClipboardSigner } from 'applesauce-signers'
+
+// Check if we're on Android
+const IS_WEB_ANDROID = /android/i.test(navigator.userAgent)
 
 export function IdentitiesPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
-  const { identities, addIdentity, removeIdentity } = useNostr()
+  const manager = useAccountManager()
+  const accountsList = useAccounts()
   const toast = useToast()
-  const [keyInput, setKeyInput] = useState('')
   const [nameInput, setNameInput] = useState('')
-  const [isCheckingExtension, setIsCheckingExtension] = useState(false)
-  const [isCheckingAmber, setIsCheckingAmber] = useState(false)
+  const [keyInput, setKeyInput] = useState('')
   const [bunkerUri, setBunkerUri] = useState('')
   const [isConnectingBunker, setIsConnectingBunker] = useState(false)
 
-  const handleBunkerConnect = async () => {
-    setIsConnectingBunker(true)
-
+  // Extension login
+  const handleWebExtensionLogin = async () => {
     try {
-      // Import necessary dependencies
-      const { Relay } = await import('applesauce-relay')
-
-      // Set up subscription and publish methods for NostrConnect
-      NostrConnectSigner.subscriptionMethod = (relays: string[], filters: any[]) => {
-        // Create a simple observable for the subscription
-        const { Observable } = require('rxjs')
-        return new Observable((observer: any) => {
-          const relay = new Relay(relays[0])
-          const sub = relay.req(filters).subscribe({
-            next: (event: any) => {
-              if (event !== 'EOSE') {
-                observer.next(event)
-              }
-            },
-            error: (err: any) => observer.error(err),
-            complete: () => observer.complete(),
-          })
-          return () => {
-            sub.unsubscribe()
-            relay.close()
-          }
-        })
-      }
-
-      NostrConnectSigner.publishMethod = async (relays: string[], event: any) => {
-        for (const relayUrl of relays) {
-          const relay = new Relay(relayUrl)
-          await relay.publish(event)
-          relay.close()
-        }
-      }
-
-      // Parse and connect to the bunker URI
-      const signer = await NostrConnectSigner.fromBunkerURI(bunkerUri, {
-        permissions: NostrConnectSigner.buildSigningPermissions([0, 1, 3, 4, 30473]),
-      })
-
-      // Get the public key from the bunker
-      const pubkey = await signer.getPublicKey()
-      const { npubEncode } = await import('nostr-tools/nip19')
-      const npub = npubEncode(pubkey)
-
-      // Check if this identity already exists
-      const existingIdentity = identities.find(id => id.npub === npub)
-      if (existingIdentity) {
+      if (!window.nostr) {
         toast({
-          title: 'Identity already exists',
-          description: 'This bunker identity is already in your list',
-          status: 'info',
-          duration: 3000,
+          title: 'Extension not found',
+          description: 'Please install a Nostr browser extension like Alby, nos2x, or Flamingo',
+          status: 'warning',
+          duration: 5000,
         })
         return
       }
 
-      // Create identity for bunker signer
-      const identity: Identity = {
-        id: crypto.randomUUID(),
-        name: nameInput || 'Bunker Identity',
-        source: 'bunker',
-        npub: npub,
-        nsec: undefined, // No nsec for bunker identities
-        bunkerUri: bunkerUri, // Store the bunker URI for reconnection
-        created_at: Math.floor(Date.now() / 1000),
+      const signer = new ExtensionSigner()
+      const pubkey = await signer.getPublicKey()
+
+      // Get the existing account or create a new one
+      const account =
+        manager.accounts.find((a) => a.type === ExtensionAccount.type && a.pubkey === pubkey) ??
+        new ExtensionAccount(pubkey, signer)
+
+      if (!manager.accounts.includes(account)) {
+        manager.addAccount(account)
       }
 
-      // Store the signer in our global signers map
-      if (!window.nostrSigners) {
-        window.nostrSigners = new Map()
-      }
-      window.nostrSigners.set(identity.id, signer)
+      manager.setActive(account)
 
-      addIdentity(identity)
+      toast({
+        title: 'Extension connected',
+        description: 'Successfully connected to browser extension',
+        status: 'success',
+        duration: 3000,
+      })
+
+      onClose()
+    } catch (error) {
+      console.error('Extension login error:', error)
+      toast({
+        title: 'Extension error',
+        description: error instanceof Error ? error.message : 'Failed to connect to extension',
+        status: 'error',
+        duration: 5000,
+      })
+    }
+  }
+
+  // Amber login (for Android)
+  const handleAmberLogin = async () => {
+    try {
+      if (!IS_WEB_ANDROID) {
+        toast({
+          title: 'Android only',
+          description: 'Amber signer is only available on Android devices',
+          status: 'info',
+          duration: 4000,
+        })
+        return
+      }
+
+      const signer = new AmberClipboardSigner()
+      const pubkey = await signer.getPublicKey()
+
+      const account =
+        manager.accounts.find((a) => a.type === AmberClipboardAccount.type && a.pubkey === pubkey) ??
+        new AmberClipboardAccount(pubkey, signer)
+
+      if (!manager.accounts.includes(account)) {
+        manager.addAccount(account)
+      }
+
+      manager.setActive(account)
+
+      toast({
+        title: 'Amber connected',
+        description: 'Successfully connected to Amber signer',
+        status: 'success',
+        duration: 3000,
+      })
+
+      onClose()
+    } catch (error) {
+      console.error('Amber login error:', error)
+      toast({
+        title: 'Amber error',
+        description: error instanceof Error ? error.message : 'Failed to connect to Amber',
+        status: 'error',
+        duration: 5000,
+      })
+    }
+  }
+
+  // Bunker connect
+  const handleBunkerConnect = async () => {
+    setIsConnectingBunker(true)
+
+    try {
+      const signer = await NostrConnectSigner.fromBunkerURI(bunkerUri, {
+        permissions: NostrConnectSigner.buildSigningPermissions([0, 1, 3, 4, 30473]),
+      })
+
+      const pubkey = await signer.getPublicKey()
+
+      const account =
+        manager.accounts.find((a) => a.type === NostrConnectAccount.type && a.pubkey === pubkey) ??
+        new NostrConnectAccount(pubkey, signer)
+
+      if (!manager.accounts.includes(account)) {
+        manager.addAccount(account)
+      }
+
+      manager.setActive(account)
+
       toast({
         title: 'Bunker connected',
         description: 'Successfully connected to remote signer',
@@ -124,7 +163,6 @@ export function IdentitiesPage() {
         duration: 3000,
       })
 
-      setNameInput('')
       setBunkerUri('')
       onClose()
     } catch (error) {
@@ -140,286 +178,100 @@ export function IdentitiesPage() {
     }
   }
 
-  const handleAmberLogin = async () => {
-    setIsCheckingAmber(true)
-
-    try {
-      // Check if we're on Android
-      const isAndroid = /android/i.test(navigator.userAgent)
-
-      if (!isAndroid) {
-        toast({
-          title: 'Android only',
-          description: 'Amber signer is only available on Android devices',
-          status: 'info',
-          duration: 4000,
-        })
-        return
-      }
-
-      // Create intent URL to get public key from Amber
-      const intentUrl = `nostrsigner:?compressionType=none&returnType=signature&type=get_public_key`
-
-      // For web apps, we need to open Amber and wait for clipboard response
-      toast({
-        title: 'Opening Amber',
-        description: 'Please approve the request in Amber and return to this app',
-        status: 'info',
-        duration: 5000,
-      })
-
-      // Store the current clipboard content to detect changes
-      const originalClipboard = await navigator.clipboard.readText().catch(() => '')
-
-      // Open Amber
-      window.location.href = intentUrl
-
-      // Wait for user to return (they need to manually come back)
-      // We'll handle the response when the page regains focus
-      const checkClipboard = async () => {
-        const newClipboard = await navigator.clipboard.readText().catch(() => '')
-
-        if (newClipboard && newClipboard !== originalClipboard && newClipboard.startsWith('npub')) {
-          // Successfully got npub from Amber
-          const npub = newClipboard
-
-          // Check if this identity already exists
-          const existingIdentity = identities.find(id => id.npub === npub)
-          if (existingIdentity) {
-            toast({
-              title: 'Identity already exists',
-              description: 'This Amber identity is already in your list',
-              status: 'info',
-              duration: 3000,
-            })
-            return
-          }
-
-          // Create identity for Amber signer
-          const identity: Identity = {
-            id: crypto.randomUUID(),
-            name: nameInput || 'Amber Identity',
-            source: 'amber',
-            npub: npub,
-            nsec: undefined, // No nsec for Amber identities
-            created_at: Math.floor(Date.now() / 1000),
-          }
-
-          addIdentity(identity)
-          toast({
-            title: 'Amber connected',
-            description: 'Successfully connected to Amber signer',
-            status: 'success',
-            duration: 3000,
-          })
-
-          setNameInput('')
-          onClose()
-        }
-      }
-
-      // Set up a listener for when the page regains focus
-      const handleFocus = () => {
-        setTimeout(checkClipboard, 500) // Small delay to ensure clipboard is updated
-      }
-
-      window.addEventListener('focus', handleFocus, { once: true })
-
-      // Also try checking after a timeout in case focus doesn't trigger
-      setTimeout(() => {
-        checkClipboard()
-        window.removeEventListener('focus', handleFocus)
-      }, 10000)
-
-    } catch (error) {
-      console.error('Amber login error:', error)
-      toast({
-        title: 'Amber error',
-        description: error instanceof Error ? error.message : 'Failed to connect to Amber',
-        status: 'error',
-        duration: 5000,
-      })
-    } finally {
-      setIsCheckingAmber(false)
-    }
-  }
-
-  const handleWebExtensionLogin = async () => {
-    setIsCheckingExtension(true)
-
-    try {
-      // Check if window.nostr is available
-      if (!window.nostr) {
-        toast({
-          title: 'Extension not found',
-          description: 'Please install a Nostr browser extension like Alby, nos2x, or Flamingo',
-          status: 'warning',
-          duration: 5000,
-        })
-        return
-      }
-
-      // Get public key from extension
-      const pubkey = await window.nostr.getPublicKey()
-
-      // Convert hex pubkey to npub
-      const { npubEncode } = await import('nostr-tools/nip19')
-      const npub = npubEncode(pubkey)
-
-      // Check if this identity already exists
-      const existingIdentity = identities.find(id => id.npub === npub)
-      if (existingIdentity) {
-        toast({
-          title: 'Identity already exists',
-          description: 'This extension identity is already in your list',
-          status: 'info',
-          duration: 3000,
-        })
-        return
-      }
-
-      // Create identity without nsec (will use extension for signing)
-      const identity: Identity = {
-        id: crypto.randomUUID(),
-        name: nameInput || 'Extension Identity',
-        source: 'extension',
-        npub: npub,
-        nsec: undefined, // No nsec for extension identities
-        created_at: Math.floor(Date.now() / 1000),
-      }
-
-      addIdentity(identity)
-      toast({
-        title: 'Extension connected',
-        description: 'Successfully connected to browser extension',
-        status: 'success',
-        duration: 3000,
-      })
-
-      setNameInput('')
-      onClose()
-    } catch (error) {
-      console.error('Extension login error:', error)
-      toast({
-        title: 'Extension error',
-        description: error instanceof Error ? error.message : 'Failed to connect to extension',
-        status: 'error',
-        duration: 5000,
-      })
-    } finally {
-      setIsCheckingExtension(false)
-    }
-  }
-
+  // Generate new keys
   const handleGenerateKeys = async () => {
     try {
-      const keyPair = generateNostrKeyPair()
-      const identity: Identity = {
-        id: crypto.randomUUID(),
-        name: nameInput || 'Generated Identity',
-        source: 'created',
-        npub: keyPair.npub,
-        nsec: keyPair.nsec,
-        created_at: Math.floor(Date.now() / 1000),
-      }
-      
-      addIdentity(identity)
+      const signer = new SimpleSigner()
+      const pubkey = await signer.getPublicKey()
+
+      const account = new SimpleAccount(pubkey, signer)
+      account.metadata = { name: nameInput || 'Generated Account' }
+
+      manager.addAccount(account)
+      manager.setActive(account)
+
       toast({
-        title: 'Identity created',
-        description: 'New identity generated successfully',
+        title: 'Account created',
+        description: 'New account generated successfully',
         status: 'success',
         duration: 3000,
       })
-      
+
       setNameInput('')
       onClose()
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to generate identity',
+        description: 'Failed to generate account',
         status: 'error',
         duration: 3000,
       })
     }
   }
 
-  const handleImportKey = () => {
-    const trimmedKey = keyInput.trim()
-    
-    // Check if it's an nsec
-    if (validateNsec(trimmedKey)) {
-      // Derive npub from nsec
-      const npub = deriveNpubFromNsec(trimmedKey)
-      if (!npub) {
+  // Import from nsec
+  const handleImportKey = async () => {
+    try {
+      const trimmedKey = keyInput.trim()
+
+      if (!trimmedKey.startsWith('nsec1')) {
         toast({
-          title: 'Error',
-          description: 'Failed to derive public key from nsec',
+          title: 'Invalid key',
+          description: 'Please enter a valid nsec key',
           status: 'error',
           duration: 3000,
         })
         return
       }
 
-      const identity: Identity = {
-        id: crypto.randomUUID(),
-        name: nameInput || 'Imported Identity',
-        source: 'nsec',
-        npub: npub,
-        nsec: trimmedKey,
-        created_at: Math.floor(Date.now() / 1000),
+      const { decode } = await import('nostr-tools/nip19')
+      const decoded = decode(trimmedKey)
+
+      if (decoded.type !== 'nsec') {
+        throw new Error('Invalid nsec key')
       }
 
-      addIdentity(identity)
+      const signer = new SimpleSigner(decoded.data as Uint8Array)
+      const pubkey = await signer.getPublicKey()
+
+      const account = new SimpleAccount(pubkey, signer)
+      account.metadata = { name: nameInput || 'Imported Account' }
+
+      manager.addAccount(account)
+      manager.setActive(account)
+
       toast({
-        title: 'Identity imported',
-        description: 'Identity imported from nsec successfully',
+        title: 'Account imported',
+        description: 'Account imported from nsec successfully',
         status: 'success',
         duration: 3000,
       })
-    } 
-    // Check if it's an npub
-    else if (validateNpub(trimmedKey)) {
-      const identity: Identity = {
-        id: crypto.randomUUID(),
-        name: nameInput || 'Watch-only Identity',
-        source: 'npub',
-        npub: trimmedKey,
-        // No nsec for npub-only imports
-        created_at: Math.floor(Date.now() / 1000),
-      }
 
-      addIdentity(identity)
+      setKeyInput('')
+      setNameInput('')
+      onClose()
+    } catch (error) {
       toast({
-        title: 'Identity imported',
-        description: 'Watch-only identity imported from npub',
-        status: 'success',
-        duration: 3000,
-      })
-    } else {
-      toast({
-        title: 'Invalid key',
-        description: 'Please enter a valid nsec or npub key',
+        title: 'Import failed',
+        description: error instanceof Error ? error.message : 'Failed to import key',
         status: 'error',
         duration: 3000,
       })
-      return
     }
-
-    setKeyInput('')
-    setNameInput('')
-    onClose()
   }
 
-  const handleDeleteIdentity = (id: string, name: string) => {
-    removeIdentity(id)
+  // Delete account
+  const handleDeleteAccount = (account: any) => {
+    manager.removeAccount(account)
     toast({
-      title: 'Identity removed',
-      description: `${name || 'Unnamed'} identity has been deleted`,
+      title: 'Account removed',
+      description: 'Account has been deleted',
       status: 'info',
       duration: 3000,
     })
   }
 
+  // Copy to clipboard
   const copyToClipboard = async (text: string, type: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -437,147 +289,183 @@ export function IdentitiesPage() {
     }
   }
 
-  const getSourceBadgeColor = (source: string) => {
-    switch (source) {
-      case 'created': return 'green'
-      case 'nsec': return 'blue'
-      case 'npub': return 'purple'
+  const getAccountTypeBadgeColor = (type: string) => {
+    switch (type) {
+      case 'simple': return 'green'
       case 'extension': return 'orange'
-      case 'amber': return 'yellow'
-      case 'bunker': return 'teal'
+      case 'amber-clipboard': return 'yellow'
+      case 'nostr-connect': return 'teal'
       default: return 'gray'
+    }
+  }
+
+  const getAccountTypeLabel = (type: string) => {
+    switch (type) {
+      case 'simple': return 'Local'
+      case 'extension': return 'Extension'
+      case 'amber-clipboard': return 'Amber'
+      case 'nostr-connect': return 'Bunker'
+      default: return type
     }
   }
 
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <Text fontSize="lg" fontWeight="bold" color="gray.800">Identities</Text>
-        <Button onClick={onOpen} size="sm" colorScheme="blue">Create New +</Button>
+        <Text fontSize="lg" fontWeight="bold" color="gray.800">Accounts</Text>
+        <Button onClick={onOpen} size="sm" colorScheme="blue">Add Account +</Button>
       </HStack>
 
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
-            <Th>Name</Th>
-            <Th>Source</Th>
-            <Th>Keys</Th>
+            <Th>Type</Th>
+            <Th>Public Key</Th>
+            <Th>Active</Th>
             <Th>Actions</Th>
           </Tr>
         </Thead>
         <Tbody>
-          {identities.map((identity) => (
-            <Tr key={identity.id}>
-              <Td>{identity.name || 'Unnamed'}</Td>
-              <Td>
-                <Badge colorScheme={getSourceBadgeColor(identity.source)}>
-                  {identity.source}
-                </Badge>
-              </Td>
-              <Td>
-                <HStack spacing={1}>
-                  <Text fontSize="xs" fontFamily="mono">
-                    {identity.npub.slice(0, 8)}...
-                  </Text>
-                  <Tooltip label="Copy npub">
-                    <IconButton
-                      size="xs"
-                      aria-label="Copy npub"
-                      icon={<span>📋</span>}
-                      onClick={() => copyToClipboard(identity.npub, 'npub')}
-                    />
-                  </Tooltip>
-                  {identity.nsec && (
-                    <Tooltip label="Copy nsec">
+          {accountsList.map((account) => {
+            const npubEncode = (pubkey: string) => {
+              // Simple npub encoding for display
+              return 'npub1' + pubkey.slice(0, 8) + '...'
+            }
+
+            return (
+              <Tr key={account.pubkey}>
+                <Td>
+                  <Badge colorScheme={getAccountTypeBadgeColor(account.type)}>
+                    {getAccountTypeLabel(account.type)}
+                  </Badge>
+                </Td>
+                <Td>
+                  <HStack spacing={1}>
+                    <Text fontSize="xs" fontFamily="mono">
+                      {npubEncode(account.pubkey)}
+                    </Text>
+                    <Tooltip label="Copy pubkey">
                       <IconButton
                         size="xs"
-                        aria-label="Copy nsec"
-                        icon={<span>🔑</span>}
-                        onClick={() => copyToClipboard(identity.nsec!, 'nsec')}
+                        aria-label="Copy pubkey"
+                        icon={<span>📋</span>}
+                        onClick={() => copyToClipboard(account.pubkey, 'Public key')}
                       />
                     </Tooltip>
+                  </HStack>
+                </Td>
+                <Td>
+                  {manager.active === account ? (
+                    <Badge colorScheme="green">Active</Badge>
+                  ) : (
+                    <Button
+                      size="xs"
+                      onClick={() => manager.setActive(account)}
+                    >
+                      Set Active
+                    </Button>
                   )}
-                </HStack>
-              </Td>
-              <Td>
-                <IconButton
-                  size="xs"
-                  aria-label="Delete identity"
-                  icon={<span>🗑️</span>}
-                  colorScheme="red"
-                  variant="ghost"
-                  onClick={() => handleDeleteIdentity(identity.id, identity.name || '')}
-                />
-              </Td>
-            </Tr>
-          ))}
+                </Td>
+                <Td>
+                  <IconButton
+                    size="xs"
+                    aria-label="Delete account"
+                    icon={<span>🗑️</span>}
+                    colorScheme="red"
+                    variant="ghost"
+                    onClick={() => handleDeleteAccount(account)}
+                  />
+                </Td>
+              </Tr>
+            )
+          })}
         </Tbody>
       </Table>
 
-      {/* Create Identity Modal */}
+      {/* Add Account Modal */}
       <Modal isOpen={isOpen} onClose={onClose}>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Create Identity</ModalHeader>
+          <ModalHeader>Add Account</ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={6}>
             <VStack spacing={4} align="stretch">
-              <Input
-                placeholder="Name (optional)"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-              />
-              
-              <Button onClick={handleGenerateKeys} colorScheme="green">
-                Generate New Keys
-              </Button>
-              
+              {/* Extension Login */}
+              {window.nostr && (
+                <Button
+                  onClick={handleWebExtensionLogin}
+                  colorScheme="orange"
+                  leftIcon={<span>🔐</span>}
+                  w="full"
+                >
+                  Sign in with Extension
+                </Button>
+              )}
+
+              {/* Amber Login (Android only) */}
+              {IS_WEB_ANDROID && (
+                <ButtonGroup colorScheme="yellow" w="full">
+                  <Button
+                    onClick={handleAmberLogin}
+                    leftIcon={<span>💎</span>}
+                    flex={1}
+                  >
+                    Use Amber
+                  </Button>
+                  <IconButton
+                    as={Link}
+                    aria-label="What is Amber?"
+                    title="What is Amber?"
+                    isExternal
+                    href="https://github.com/greenart7c3/Amber"
+                    icon={<span>❓</span>}
+                  />
+                </ButtonGroup>
+              )}
+
+              <Divider />
+
+              {/* Generate New Keys */}
+              <VStack spacing={2}>
+                <Input
+                  placeholder="Account name (optional)"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                />
+                <Button onClick={handleGenerateKeys} colorScheme="green" w="full">
+                  Generate New Keys
+                </Button>
+              </VStack>
+
               <Text fontSize="sm" color="gray.600" textAlign="center">
                 — OR —
               </Text>
-              
+
+              {/* Import from nsec */}
               <VStack spacing={2}>
-                <Input 
-                  placeholder="Paste npub or nsec" 
-                  aria-label="Paste key"
+                <Input
+                  placeholder="Paste nsec key"
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
                   fontFamily="mono"
                   fontSize="sm"
                 />
-                <Button 
-                  onClick={handleImportKey} 
+                <Button
+                  onClick={handleImportKey}
                   disabled={!keyInput}
                   size="sm"
                   colorScheme="blue"
+                  w="full"
                 >
                   Import Key
                 </Button>
               </VStack>
-              
-              <Button
-                variant="outline"
-                onClick={handleWebExtensionLogin}
-                isLoading={isCheckingExtension}
-                loadingText="Checking extension..."
-              >
-                🔐 Sign in with Extension
-              </Button>
-
-              <Button
-                variant="outline"
-                onClick={handleAmberLogin}
-                isLoading={isCheckingAmber}
-                loadingText="Connecting to Amber..."
-                colorScheme="orange"
-              >
-                📱 Connect Amber (Android)
-              </Button>
 
               <Text fontSize="sm" color="gray.600" textAlign="center">
                 — OR —
               </Text>
 
+              {/* Bunker Connect */}
               <VStack spacing={2}>
                 <Input
                   placeholder="Paste bunker:// URI for remote signer"
@@ -593,6 +481,7 @@ export function IdentitiesPage() {
                   loadingText="Connecting to bunker..."
                   colorScheme="teal"
                   isDisabled={!bunkerUri.startsWith('bunker://')}
+                  w="full"
                 >
                   🔒 Connect Remote Signer (NIP-46)
                 </Button>

@@ -2,16 +2,13 @@ import { useState, useEffect, useMemo } from 'react'
 import { EventStore } from 'applesauce-core'
 import { Relay } from 'applesauce-relay'
 import * as nip19 from 'nostr-tools/nip19'
-import * as nip44 from 'nostr-tools/nip44'
-import { getPublicKey } from 'nostr-tools/pure'
-import { LocationEvent, Identity } from '../types'
+import { LocationEvent } from '../types'
 import { mapService } from '../services/mapService'
 
 // Initialize Applesauce EventStore
 const eventStore = new EventStore()
 
 class NostrApplesauceService {
-  private identities: Identity[] = []
   private locationEvents: LocationEvent[] = []
   private connectedRelays: Map<string, Relay> = new Map()
   private updateCallbacks: Set<() => void> = new Set()
@@ -22,27 +19,6 @@ class NostrApplesauceService {
     this.autoConnectToSavedRelay()
   }
 
-  // Identity management
-  async addIdentity(identity: Identity) {
-    this.identities.push(identity)
-    this.saveToStorage('identities', this.identities)
-
-    if (identity.nsec) {
-      await this.decryptExistingLocationsForIdentity(identity)
-    }
-
-    this.notifyUpdate()
-  }
-
-  removeIdentity(id: string) {
-    this.identities = this.identities.filter(i => i.id !== id)
-    this.saveToStorage('identities', this.identities)
-    this.notifyUpdate()
-  }
-
-  getIdentities(): Identity[] {
-    return this.identities
-  }
 
   // Location events management
   addLocationEvent(event: LocationEvent) {
@@ -127,121 +103,10 @@ class NostrApplesauceService {
   }
 
   // Publish location event using Applesauce
-  async publishLocationEvent(eventTemplate: any, relayUrls: string[]) {
+  async publishLocationEvent(eventTemplate: any, relayUrls: string[], signer: any) {
     try {
-      // Find the identity for signing
-      const senderIdentity = this.identities.find(id => {
-        // For extension/amber/bunker identities, match by npub
-        if (id.source === 'extension' || id.source === 'amber' || id.source === 'bunker') {
-          try {
-            const decoded = nip19.decode(id.npub)
-            if (decoded.type === 'npub') {
-              return decoded.data === eventTemplate.pubkey
-            }
-          } catch {}
-          return false
-        }
-
-        // For other identities, match by nsec
-        if (!id.nsec) return false
-        try {
-          const decoded = nip19.decode(id.nsec)
-          if (decoded.type === 'nsec') {
-            const pubkey = getPublicKey(decoded.data as Uint8Array)
-            return pubkey === eventTemplate.pubkey
-          }
-        } catch {}
-        return false
-      })
-
-      if (!senderIdentity) {
-        throw new Error('No matching identity found for signing')
-      }
-
-      let signedEvent: any
-
-      // Handle signing based on identity source
-      if (senderIdentity.source === 'extension') {
-        // Use window.nostr for signing if available
-        if (!window.nostr) {
-          throw new Error('Browser extension not available for signing')
-        }
-
-        // Sign the event using the browser extension
-        signedEvent = await window.nostr.signEvent(eventTemplate)
-      } else if (senderIdentity.source === 'amber') {
-        // For Amber, we need to use the clipboard API
-        const eventJson = JSON.stringify(eventTemplate)
-        const intentUrl = `nostrsigner:${encodeURIComponent(eventJson)}?compressionType=none&returnType=event&type=sign_event`
-
-        // Store current clipboard content
-        const originalClipboard = await navigator.clipboard.readText().catch(() => '')
-
-        // Open Amber for signing
-        window.location.href = intentUrl
-
-        // Wait for the signed event to be copied to clipboard
-        return new Promise((resolve, reject) => {
-          const checkClipboard = async () => {
-            const clipboardContent = await navigator.clipboard.readText().catch(() => '')
-
-            if (clipboardContent && clipboardContent !== originalClipboard) {
-              try {
-                // Try to parse as JSON (signed event)
-                const parsedEvent = JSON.parse(clipboardContent)
-                if (parsedEvent.sig) {
-                  resolve(parsedEvent)
-                  return parsedEvent
-                }
-              } catch {
-                // Not JSON, might be waiting for result
-              }
-            }
-          }
-
-          // Check clipboard when page regains focus
-          const handleFocus = () => {
-            setTimeout(checkClipboard, 500)
-          }
-
-          window.addEventListener('focus', handleFocus, { once: true })
-
-          // Timeout after 30 seconds
-          setTimeout(() => {
-            window.removeEventListener('focus', handleFocus)
-            reject(new Error('Amber signing timeout'))
-          }, 30000)
-        })
-      } else if (senderIdentity.source === 'bunker') {
-        // Use NostrConnect bunker signer
-        if (!window.nostrSigners) {
-          throw new Error('No bunker signers available')
-        }
-
-        const signer = window.nostrSigners.get(senderIdentity.id)
-        if (!signer) {
-          throw new Error('Bunker signer not found. Please reconnect.')
-        }
-
-        // Sign the event using the bunker signer
-        signedEvent = await signer.signEvent(eventTemplate)
-      } else {
-        // Use nsec for signing
-        if (!senderIdentity.nsec) {
-          throw new Error('No secret key available for signing')
-        }
-
-        const decoded = nip19.decode(senderIdentity.nsec)
-        if (decoded.type !== 'nsec') {
-          throw new Error('Invalid nsec')
-        }
-
-        const secretKey = decoded.data as Uint8Array
-
-        // Sign the event using nostr-tools
-        const { finalizeEvent } = await import('nostr-tools/pure')
-        signedEvent = finalizeEvent(eventTemplate, secretKey)
-      }
+      // Sign the event using the provided signer
+      const signedEvent = await signer.signEvent(eventTemplate)
 
       // Publish to relays
       const publishPromises = relayUrls.map(url => {
@@ -274,57 +139,8 @@ class NostrApplesauceService {
     let accuracy: number | undefined
     let nameFromContent: string | undefined
 
-    // Try to decrypt if we have the recipient's private key
-    if (recipientPubkey && event.content) {
-      const recipientIdentity = this.identities.find(id => {
-        if (!id.nsec) return false
-        try {
-          const decoded = nip19.decode(id.nsec)
-          if (decoded.type === 'nsec') {
-            const pubkey = getPublicKey(decoded.data as Uint8Array)
-            return pubkey === recipientPubkey
-          }
-        } catch {}
-        return false
-      })
-
-      if (recipientIdentity && recipientIdentity.nsec) {
-        try {
-          const decoded = nip19.decode(recipientIdentity.nsec)
-          if (decoded.type === 'nsec') {
-            const secretKey = decoded.data as Uint8Array
-            const conversationKey = nip44.v2.utils.getConversationKey(
-              secretKey,
-              event.pubkey
-            )
-
-            const decryptedContent = nip44.v2.decrypt(
-              event.content,
-              conversationKey
-            )
-
-            const contentTags = JSON.parse(decryptedContent) as Array<[string, string]>
-            const gTag = contentTags.find(t => t[0] === 'g')
-            const accuracyTag = contentTags.find(t => t[0] === 'accuracy')
-            const nameTag = contentTags.find(t => t[0] === 'name')
-
-            if (gTag && gTag[1]) {
-              decryptedGeohash = gTag[1]
-            }
-
-            if (accuracyTag && accuracyTag[1]) {
-              accuracy = parseInt(accuracyTag[1])
-            }
-
-            if (nameTag && nameTag[1]) {
-              nameFromContent = nameTag[1]
-            }
-          }
-        } catch (error) {
-          console.error('Failed to decrypt location event:', error)
-        }
-      }
-    }
+    // Decryption will be handled separately when needed
+    // Since we don't have access to accounts here, we can't automatically decrypt
 
     const locationEvent: LocationEvent = {
       id: addressableId,
@@ -391,10 +207,8 @@ class NostrApplesauceService {
 
   private loadFromStorage() {
     try {
-      const identities = JSON.parse(localStorage.getItem('spotstr_identities') || '[]')
       const locationEvents = JSON.parse(localStorage.getItem('spotstr_locationEvents') || '[]')
 
-      this.identities = identities
       this.locationEvents = locationEvents
 
       if (locationEvents.length > 0) {
@@ -417,84 +231,6 @@ class NostrApplesauceService {
     }
   }
 
-  private async decryptExistingLocationsForIdentity(identity: Identity) {
-    if (!identity.nsec) return
-
-    try {
-      const decoded = nip19.decode(identity.nsec)
-      if (decoded.type !== 'nsec') return
-
-      const secretKey = decoded.data as Uint8Array
-      const publicKey = getPublicKey(secretKey)
-
-      let hasUpdates = false
-
-      const updatedLocations = await Promise.all(
-        this.locationEvents.map(async (location) => {
-          if (location.geohash !== 'encrypted' || !location.encryptedContent) {
-            return location
-          }
-
-          const recipientPubkey = location.receiverNpub ?
-            this.npubToHex(location.receiverNpub) : null
-
-          if (recipientPubkey !== publicKey) return location
-
-          try {
-            if (location.senderPubkey && location.encryptedContent) {
-              const conversationKey = nip44.v2.utils.getConversationKey(
-                secretKey,
-                location.senderPubkey
-              )
-
-              const decryptedContent = nip44.v2.decrypt(
-                location.encryptedContent,
-                conversationKey
-              )
-
-              const contentTags = JSON.parse(decryptedContent) as Array<[string, string]>
-              const gTag = contentTags.find(t => t[0] === 'g')
-              const accuracyTag = contentTags.find(t => t[0] === 'accuracy')
-              const nameTag = contentTags.find(t => t[0] === 'name')
-
-              if (gTag && gTag[1]) {
-                hasUpdates = true
-                return {
-                  ...location,
-                  geohash: gTag[1],
-                  accuracy: accuracyTag ? parseInt(accuracyTag[1]) : location.accuracy,
-                  name: nameTag?.[1] || location.name
-                }
-              }
-            }
-            return location
-          } catch (error) {
-            console.error('Failed to decrypt location:', error)
-            return location
-          }
-        })
-      )
-
-      if (hasUpdates) {
-        this.locationEvents = updatedLocations
-        this.saveToStorage('locationEvents', updatedLocations)
-        mapService.updateLocations(updatedLocations)
-        this.notifyUpdate()
-      }
-    } catch (error) {
-      console.error('Error decrypting locations for new identity:', error)
-    }
-  }
-
-  private npubToHex(npub: string): string | null {
-    try {
-      const decoded = nip19.decode(npub)
-      if (decoded.type === 'npub') {
-        return decoded.data as string
-      }
-    } catch {}
-    return null
-  }
 
   // Update notification system
   subscribe(callback: () => void) {
@@ -514,13 +250,11 @@ const nostrService = new NostrApplesauceService()
 
 // Custom hook for using the Nostr service
 export function useNostr() {
-  const [identities, setIdentities] = useState<Identity[]>(nostrService.getIdentities())
   const [locationEvents, setLocationEvents] = useState<LocationEvent[]>(nostrService.getLocationEvents())
   const [connectedRelays, setConnectedRelays] = useState<string[]>(nostrService.getConnectedRelays())
 
   useEffect(() => {
     const updateState = () => {
-      setIdentities(nostrService.getIdentities())
       setLocationEvents(nostrService.getLocationEvents())
       setConnectedRelays(nostrService.getConnectedRelays())
     }
@@ -541,17 +275,14 @@ export function useNostr() {
   }, [connectedRelays])
 
   return {
-    identities,
     locationEvents,
     connectedRelays,
     relayStatus,
-    addIdentity: (identity: Identity) => nostrService.addIdentity(identity),
-    removeIdentity: (id: string) => nostrService.removeIdentity(id),
     addLocationEvent: (event: LocationEvent) => nostrService.addLocationEvent(event),
     connectToRelay: (url: string) => nostrService.connectToRelay(url),
     disconnectRelay: (url: string) => nostrService.disconnectRelay(url),
     isRelayConnected: (url: string) => nostrService.isRelayConnected(url),
-    publishLocationEvent: (event: any, relayUrls: string[]) => nostrService.publishLocationEvent(event, relayUrls),
+    publishLocationEvent: (event: any, relayUrls: string[], signer: any) => nostrService.publishLocationEvent(event, relayUrls, signer),
     disconnectAll: () => nostrService.disconnectAll(),
     clearAllLocations: () => nostrService.clearAllLocations(),
   }
