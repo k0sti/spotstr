@@ -1,20 +1,39 @@
 import { useState, useEffect } from 'react'
-import { Box, Text, Input, VStack, FormLabel, Button, HStack, useToast } from '@chakra-ui/react'
+import { Box, Text, Input, VStack, FormLabel, Button, HStack, useToast, Divider, Textarea } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 
 const DEFAULT_RELAY = 'https://precision.bilberry-tetra.ts.net/relay'
+const DEFAULT_PROFILE_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.nostr.band'
+]
 
 export function SettingsPage() {
   const { connectToRelay, disconnectRelay, isRelayConnected } = useNostr()
   const toast = useToast()
   const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY)
   const [isConnecting, setIsConnecting] = useState(false)
+  const [profileRelays, setProfileRelays] = useState<string[]>(DEFAULT_PROFILE_RELAYS)
 
   useEffect(() => {
     // Load saved relay URL from localStorage
     const saved = localStorage.getItem('spotstr_relayUrl')
     if (saved) {
       setRelayUrl(saved)
+    }
+
+    // Load saved profile relays
+    const savedProfileRelays = localStorage.getItem('spotstr_profileRelays')
+    if (savedProfileRelays) {
+      try {
+        const parsed = JSON.parse(savedProfileRelays)
+        if (Array.isArray(parsed)) {
+          setProfileRelays(parsed)
+        }
+      } catch (e) {
+        console.error('Failed to parse profile relays:', e)
+      }
     }
   }, [])
   
@@ -69,6 +88,34 @@ export function SettingsPage() {
     toast({
       title: 'Reset to default',
       description: 'Relay URL has been reset to default',
+      status: 'info',
+      duration: 2000,
+    })
+  }
+
+  const handleProfileRelaysChange = (value: string) => {
+    const relays = value.split('\n')
+      .map(r => r.trim())
+      .filter(r => r.length > 0)
+    setProfileRelays(relays)
+  }
+
+  const saveProfileRelays = () => {
+    localStorage.setItem('spotstr_profileRelays', JSON.stringify(profileRelays))
+    toast({
+      title: 'Saved',
+      description: 'Profile relay settings have been saved',
+      status: 'success',
+      duration: 2000,
+    })
+  }
+
+  const resetProfileRelays = () => {
+    setProfileRelays(DEFAULT_PROFILE_RELAYS)
+    localStorage.setItem('spotstr_profileRelays', JSON.stringify(DEFAULT_PROFILE_RELAYS))
+    toast({
+      title: 'Reset',
+      description: 'Profile relays have been reset to defaults',
       status: 'info',
       duration: 2000,
     })
@@ -129,11 +176,46 @@ export function SettingsPage() {
           </Box>
         )}
 
+        <Divider my={6} />
+
+        {/* Profile Relay Configuration */}
+        <Box>
+          <FormLabel>Profile Relays</FormLabel>
+          <Text fontSize="xs" color="gray.600" mb={2}>
+            These relays are used to fetch user profiles and metadata. Enter one relay URL per line.
+          </Text>
+          <Textarea
+            value={profileRelays.join('\n')}
+            onChange={(e) => handleProfileRelaysChange(e.target.value)}
+            placeholder="Enter relay URLs (one per line)"
+            rows={5}
+            fontSize="sm"
+            fontFamily="mono"
+          />
+        </Box>
+
+        <HStack spacing={2}>
+          <Button
+            size="sm"
+            colorScheme="blue"
+            onClick={saveProfileRelays}
+          >
+            Save Profile Relays
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={resetProfileRelays}
+          >
+            Reset to Defaults
+          </Button>
+        </HStack>
+
         <Box mt={6} p={4} bg="gray.50" borderRadius="md">
           <Text fontSize="sm" fontWeight="bold" mb={2}>About Spotstr</Text>
           <Text fontSize="xs" color="gray.600">
-            Spotstr is a location-sharing application built on the Nostr protocol, 
-            implementing NIP-30473 for encrypted location events. Share your location 
+            Spotstr is a location-sharing application built on the Nostr protocol,
+            implementing NIP-30473 for encrypted location events. Share your location
             privately with selected contacts using geohash encoding.
           </Text>
         </Box>

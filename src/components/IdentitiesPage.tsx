@@ -15,13 +15,13 @@ import {
   ModalBody,
   ModalCloseButton,
   VStack,
+  HStack,
   Input,
   Text,
   useDisclosure,
   IconButton,
   useToast,
   Badge,
-  HStack,
   Tooltip,
   ButtonGroup,
   Link,
@@ -33,6 +33,7 @@ import { ExtensionAccount, SimpleAccount, NostrConnectAccount } from 'applesauce
 import { ExtensionSigner, SimpleSigner, NostrConnectSigner } from 'applesauce-signers'
 import { npubEncode } from 'nostr-tools/nip19'
 import { generateNostrKeyPair } from '../utils/crypto'
+import { fetchProfile } from '../utils/profileRelays'
 
 // Check if we're on Android
 const IS_WEB_ANDROID = /android/i.test(navigator.userAgent)
@@ -88,9 +89,30 @@ function IdentityRow({ account, onDelete, onCopy }: {
         </Badge>
       </Td>
       <Td>
-        <Text fontSize="sm">
-          {account.metadata?.name || 'Unnamed'}
-        </Text>
+        <HStack spacing={2}>
+          {account.metadata?.picture && (
+            <Box
+              width="24px"
+              height="24px"
+              borderRadius="full"
+              overflow="hidden"
+              flexShrink={0}
+            >
+              <img
+                src={account.metadata.picture}
+                alt={account.metadata?.name || 'Profile'}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                onError={(e) => {
+                  // Hide image on error
+                  (e.target as HTMLImageElement).style.display = 'none'
+                }}
+              />
+            </Box>
+          )}
+          <Text fontSize="sm">
+            {account.metadata?.name || 'Unnamed'}
+          </Text>
+        </HStack>
       </Td>
       <Td>
         <VStack align="start" spacing={0}>
@@ -155,17 +177,51 @@ export function IdentitiesPage() {
       const pubkey = await signer.getPublicKey()
 
       // Get the existing account or create a new one
-      const account =
-        manager.accounts.find((a) => a.type === ExtensionAccount.type && a.pubkey === pubkey) ??
-        new ExtensionAccount(pubkey, signer)
+      const existingAccount = manager.accounts.find((a) => a.type === ExtensionAccount.type && a.pubkey === pubkey)
 
-      if (!manager.accounts.includes(account)) {
-        manager.addAccount(account)
+      if (existingAccount) {
+        toast({
+          title: 'Already added',
+          description: 'This extension account is already added',
+          status: 'info',
+          duration: 3000,
+        })
+        onClose()
+        return
       }
+
+      const account = new ExtensionAccount(pubkey, signer)
+
+      // Fetch profile data from relays
+      toast({
+        title: 'Fetching profile',
+        description: 'Loading profile information from relays...',
+        status: 'info',
+        duration: 2000,
+      })
+
+      const profile = await fetchProfile(pubkey)
+      if (profile) {
+        // Store profile data in account metadata
+        account.metadata = {
+          name: profile.display_name || profile.name || 'Extension Account',
+          picture: profile.picture,
+          about: profile.about,
+          nip05: profile.nip05,
+          ...profile
+        }
+        console.log('Fetched profile for extension account:', profile)
+      } else {
+        account.metadata = { name: 'Extension Account' }
+      }
+
+      manager.addAccount(account)
 
       toast({
         title: 'Extension connected',
-        description: 'Successfully connected to browser extension',
+        description: profile ?
+          `Connected as ${profile.display_name || profile.name || 'Extension User'}` :
+          'Successfully connected to browser extension',
         status: 'success',
         duration: 3000,
       })
@@ -235,6 +291,21 @@ export function IdentitiesPage() {
         console.log('Got public key:', pubkey)
 
         const account = new NostrConnectAccount(pubkey, amberSigner)
+
+        // Fetch profile data
+        const profile = await fetchProfile(pubkey)
+        if (profile) {
+          account.metadata = {
+            name: profile.display_name || profile.name || 'Amber Account',
+            picture: profile.picture,
+            about: profile.about,
+            nip05: profile.nip05,
+            ...profile
+          }
+        } else {
+          account.metadata = { name: 'Amber Account' }
+        }
+
         manager.addAccount(account)
 
         toast({
@@ -283,13 +354,37 @@ export function IdentitiesPage() {
 
       const pubkey = await signer.getPublicKey()
 
-      const account =
-        manager.accounts.find((a) => a.type === NostrConnectAccount.type && a.pubkey === pubkey) ??
-        new NostrConnectAccount(pubkey, signer)
+      const existingBunker = manager.accounts.find((a) => a.type === NostrConnectAccount.type && a.pubkey === pubkey)
 
-      if (!manager.accounts.includes(account)) {
-        manager.addAccount(account)
+      if (existingBunker) {
+        toast({
+          title: 'Already connected',
+          description: 'This bunker account is already connected',
+          status: 'info',
+          duration: 3000,
+        })
+        setBunkerUri('')
+        onClose()
+        return
       }
+
+      const account = new NostrConnectAccount(pubkey, signer)
+
+      // Fetch profile data
+      const profile = await fetchProfile(pubkey)
+      if (profile) {
+        account.metadata = {
+          name: profile.display_name || profile.name || 'Bunker Account',
+          picture: profile.picture,
+          about: profile.about,
+          nip05: profile.nip05,
+          ...profile
+        }
+      } else {
+        account.metadata = { name: 'Bunker Account' }
+      }
+
+      manager.addAccount(account)
 
       toast({
         title: 'Bunker connected',
