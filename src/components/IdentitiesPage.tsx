@@ -34,6 +34,74 @@ export function IdentitiesPage() {
   const toast = useToast()
   const [keyInput, setKeyInput] = useState('')
   const [nameInput, setNameInput] = useState('')
+  const [isCheckingExtension, setIsCheckingExtension] = useState(false)
+
+  const handleWebExtensionLogin = async () => {
+    setIsCheckingExtension(true)
+
+    try {
+      // Check if window.nostr is available
+      if (!window.nostr) {
+        toast({
+          title: 'Extension not found',
+          description: 'Please install a Nostr browser extension like Alby, nos2x, or Flamingo',
+          status: 'warning',
+          duration: 5000,
+        })
+        return
+      }
+
+      // Get public key from extension
+      const pubkey = await window.nostr.getPublicKey()
+
+      // Convert hex pubkey to npub
+      const { npubEncode } = await import('nostr-tools/nip19')
+      const npub = npubEncode(pubkey)
+
+      // Check if this identity already exists
+      const existingIdentity = identities.find(id => id.npub === npub)
+      if (existingIdentity) {
+        toast({
+          title: 'Identity already exists',
+          description: 'This extension identity is already in your list',
+          status: 'info',
+          duration: 3000,
+        })
+        return
+      }
+
+      // Create identity without nsec (will use extension for signing)
+      const identity: Identity = {
+        id: crypto.randomUUID(),
+        name: nameInput || 'Extension Identity',
+        source: 'extension',
+        npub: npub,
+        nsec: undefined, // No nsec for extension identities
+        created_at: Math.floor(Date.now() / 1000),
+      }
+
+      addIdentity(identity)
+      toast({
+        title: 'Extension connected',
+        description: 'Successfully connected to browser extension',
+        status: 'success',
+        duration: 3000,
+      })
+
+      setNameInput('')
+      onClose()
+    } catch (error) {
+      console.error('Extension login error:', error)
+      toast({
+        title: 'Extension error',
+        description: error instanceof Error ? error.message : 'Failed to connect to extension',
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setIsCheckingExtension(false)
+    }
+  }
 
   const handleGenerateKeys = async () => {
     try {
@@ -277,7 +345,14 @@ export function IdentitiesPage() {
                 </Button>
               </VStack>
               
-              <Button variant="outline">Sign in with Extension</Button>
+              <Button
+                variant="outline"
+                onClick={handleWebExtensionLogin}
+                isLoading={isCheckingExtension}
+                loadingText="Checking extension..."
+              >
+                🔐 Sign in with Extension
+              </Button>
             </VStack>
           </ModalBody>
         </ModalContent>

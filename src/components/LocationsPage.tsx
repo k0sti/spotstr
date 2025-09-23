@@ -50,7 +50,8 @@ export function LocationsPage() {
   const [accuracy, setAccuracy] = useState<number>(100) // Default 100m accuracy
 
   // Filter identities with nsec for sender selection
-  const identitiesWithNsec = identities.filter(id => id.nsec)
+  // Identities that can sign (have nsec or are from extension)
+  const identitiesWithSigningCapability = identities.filter(id => id.nsec || id.source === 'extension')
 
   const queryDeviceLocation = async () => {
     if (!navigator.geolocation) {
@@ -124,31 +125,41 @@ export function LocationsPage() {
       const { getPublicKey } = await import('nostr-tools/pure')
       const nip19 = await import('nostr-tools/nip19')
 
-      // Get sender identity with private key
-      const senderIdentity = identities.find(id => id.npub === selectedSender && id.nsec)
-      if (!senderIdentity || !senderIdentity.nsec) {
-        throw new Error('Sender identity not found or has no private key')
+      // Get sender identity
+      const senderIdentity = identities.find(id => id.npub === selectedSender)
+      if (!senderIdentity) {
+        throw new Error('Sender identity not found')
       }
 
-      // Decode sender's private key
-      const senderSecretKeyDecoded = nip19.decode(senderIdentity.nsec)
-      if (senderSecretKeyDecoded.type !== 'nsec') {
-        throw new Error('Invalid nsec')
+      let senderSecretKey: Uint8Array | undefined
+      let senderPublicKey: string
+
+      // Handle different identity sources
+      if (senderIdentity.source === 'extension') {
+        // For extension identities, we'll use window.nostr for encryption
+        const decoded = nip19.decode(senderIdentity.npub)
+        if (decoded.type !== 'npub') {
+          throw new Error('Invalid npub')
+        }
+        senderPublicKey = decoded.data as string
+      } else {
+        // For nsec-based identities
+        if (!senderIdentity.nsec) {
+          throw new Error('Sender has no private key')
+        }
+        const senderSecretKeyDecoded = nip19.decode(senderIdentity.nsec)
+        if (senderSecretKeyDecoded.type !== 'nsec') {
+          throw new Error('Invalid nsec')
+        }
+        senderSecretKey = senderSecretKeyDecoded.data as Uint8Array
+        senderPublicKey = getPublicKey(senderSecretKey)
       }
-      const senderSecretKey = senderSecretKeyDecoded.data as Uint8Array
-      const senderPublicKey = getPublicKey(senderSecretKey)
 
       // Get receiver's public key
       const receiverPublicKey = npubToHex(selectedReceiver)
       if (!receiverPublicKey) {
         throw new Error('Invalid receiver npub')
       }
-
-      // Create conversation key for NIP-44 encryption
-      const conversationKey = nip44.v2.utils.getConversationKey(
-        senderSecretKey,
-        receiverPublicKey
-      )
 
       // Prepare location data tags
       const locationTags: string[][] = [['g', geohash]]
@@ -160,10 +171,28 @@ export function LocationsPage() {
       }
 
       // Encrypt location data
-      const encryptedContent = nip44.v2.encrypt(
-        JSON.stringify(locationTags),
-        conversationKey
-      )
+      let encryptedContent: string
+
+      if (senderIdentity.source === 'extension') {
+        // Use window.nostr for encryption if available
+        if (!window.nostr?.nip44?.encrypt) {
+          throw new Error('Browser extension does not support NIP-44 encryption')
+        }
+        encryptedContent = await window.nostr.nip44.encrypt(
+          receiverPublicKey,
+          JSON.stringify(locationTags)
+        )
+      } else {
+        // Use local encryption with conversation key
+        const conversationKey = nip44.v2.utils.getConversationKey(
+          senderSecretKey!,
+          receiverPublicKey
+        )
+        encryptedContent = nip44.v2.encrypt(
+          JSON.stringify(locationTags),
+          conversationKey
+        )
+      }
 
       // Create the Nostr event
       const dTag = locationName || '' // Empty string for single location per pubkey
@@ -325,7 +354,7 @@ export function LocationsPage() {
                 value={selectedSender}
                 onChange={(e) => setSelectedSender(e.target.value)}
               >
-                {identitiesWithNsec.map((identity) => (
+                {identitiesWithSigningCapability.map((identity) => (
                   <option key={identity.id} value={identity.npub}>
                     {identity.name || 'Unnamed'} ({identity.npub.slice(0, 8)}...)
                   </option>

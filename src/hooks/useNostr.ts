@@ -126,11 +126,23 @@ class NostrApplesauceService {
     }
   }
 
-  // Publish location event using Applesauce EventFactory
+  // Publish location event using Applesauce
   async publishLocationEvent(eventTemplate: any, relayUrls: string[]) {
     try {
       // Find the identity for signing
       const senderIdentity = this.identities.find(id => {
+        // For extension identities, match by npub
+        if (id.source === 'extension') {
+          try {
+            const decoded = nip19.decode(id.npub)
+            if (decoded.type === 'npub') {
+              return decoded.data === eventTemplate.pubkey
+            }
+          } catch {}
+          return false
+        }
+
+        // For other identities, match by nsec
         if (!id.nsec) return false
         try {
           const decoded = nip19.decode(id.nsec)
@@ -142,21 +154,38 @@ class NostrApplesauceService {
         return false
       })
 
-      if (!senderIdentity || !senderIdentity.nsec) {
-        throw new Error('No matching identity with secret key found for signing')
+      if (!senderIdentity) {
+        throw new Error('No matching identity found for signing')
       }
 
-      // Decode the nsec to get the secret key
-      const decoded = nip19.decode(senderIdentity.nsec)
-      if (decoded.type !== 'nsec') {
-        throw new Error('Invalid nsec')
+      let signedEvent: any
+
+      // Handle signing based on identity source
+      if (senderIdentity.source === 'extension') {
+        // Use window.nostr for signing if available
+        if (!window.nostr) {
+          throw new Error('Browser extension not available for signing')
+        }
+
+        // Sign the event using the browser extension
+        signedEvent = await window.nostr.signEvent(eventTemplate)
+      } else {
+        // Use nsec for signing
+        if (!senderIdentity.nsec) {
+          throw new Error('No secret key available for signing')
+        }
+
+        const decoded = nip19.decode(senderIdentity.nsec)
+        if (decoded.type !== 'nsec') {
+          throw new Error('Invalid nsec')
+        }
+
+        const secretKey = decoded.data as Uint8Array
+
+        // Sign the event using nostr-tools
+        const { finalizeEvent } = await import('nostr-tools/pure')
+        signedEvent = finalizeEvent(eventTemplate, secretKey)
       }
-
-      const secretKey = decoded.data as Uint8Array
-
-      // Sign the event using nostr-tools
-      const { finalizeEvent } = await import('nostr-tools/pure')
-      const signedEvent = finalizeEvent(eventTemplate, secretKey)
 
       // Publish to relays
       const publishPromises = relayUrls.map(url => {
