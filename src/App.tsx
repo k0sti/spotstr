@@ -8,15 +8,16 @@ import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
 import * as nip19 from 'nostr-tools/nip19'
 import { getPublicKey } from 'nostr-tools/pure'
-import { 
-  Box, 
-  Flex, 
-  Text, 
-  IconButton, 
+import {
+  Box,
+  Flex,
+  Text,
+  IconButton,
   HStack,
   Tooltip,
   Circle,
-  Link
+  Link,
+  Image
 } from '@chakra-ui/react'
 
 type PageType = 'identities' | 'locations' | 'settings' | 'eventlog' | null
@@ -111,16 +112,25 @@ function AppContent() {
         >
           <Flex justify="space-between" align="center">
             <HStack spacing={3}>
-              <Text
-                fontSize="xl"
-                fontWeight="bold"
-                color="gray.800"
+              <HStack
+                spacing={2}
                 cursor="pointer"
-                _hover={{ color: 'gray.600' }}
+                _hover={{ opacity: 0.8 }}
                 onClick={() => window.location.href = '/'}
               >
-                Spotstr
-              </Text>
+                <Image
+                  src="/icon-512.png"
+                  alt="Spotstr Logo"
+                  boxSize="32px"
+                />
+                <Text
+                  fontSize="xl"
+                  fontWeight="bold"
+                  color="gray.800"
+                >
+                  Spotstr
+                </Text>
+              </HStack>
               <Tooltip 
                 label={isConnected ? `Connected to ${connectedRelays.length} relay${connectedRelays.length > 1 ? 's' : ''}` : 'No relay connection'}
                 placement="bottom"
