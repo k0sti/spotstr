@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, IconButton, Tooltip } from '@chakra-ui/react'
+import { Box, IconButton, Tooltip, Input, HStack, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, Text } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
+import { generateGeohash, decodeGeohash } from '../utils/crypto'
 
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css'
@@ -31,6 +32,11 @@ export function MapComponent() {
   const [locations, setLocations] = useState<MapLocation[]>([])
   const [isQueryingLocation, setIsQueryingLocation] = useState(false)
   const watchIdRef = useRef<number | null>(null)
+  const [geohashInput, setGeohashInput] = useState('')
+  const [showShareModal, setShowShareModal] = useState(false)
+  const userLocationMarkerRef = useRef<L.Rectangle | null>(null)
+  const userLocationCenterRef = useRef<L.Marker | null>(null)
+  const firstLocationReceived = useRef(false)
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
@@ -64,11 +70,17 @@ export function MapComponent() {
   useEffect(() => {
     const focusSub = mapService.getFocusedLocation().subscribe(location => {
       if (location && mapRef.current) {
-        mapRef.current.setView([location.lat, location.lng], 15, {
+        // Fit bounds to show the entire geohash rectangle
+        const bounds = L.latLngBounds(
+          [location.bounds.minLat, location.bounds.minLng],
+          [location.bounds.maxLat, location.bounds.maxLng]
+        )
+        mapRef.current.fitBounds(bounds, {
           animate: true,
-          duration: 0.5
+          duration: 0.5,
+          padding: [50, 50]
         })
-        
+
         // Highlight the focused rectangle
         const rect = rectanglesRef.current.get(location.id)
         if (rect) {
@@ -161,20 +173,34 @@ export function MapComponent() {
         watchIdRef.current = null
       }
       setIsQueryingLocation(false)
+      firstLocationReceived.current = false
     } else {
       // Start querying location
       if ('geolocation' in navigator) {
         setIsQueryingLocation(true)
+        firstLocationReceived.current = false
 
         // Get current position once
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            if (mapRef.current) {
-              mapRef.current.setView(
-                [position.coords.latitude, position.coords.longitude],
-                15,
-                { animate: true, duration: 0.5 }
-              )
+            const geohash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
+            setGeohashInput(geohash)
+
+            if (mapRef.current && !firstLocationReceived.current) {
+              // For GPS location, focus on the geohash bounds
+              const decoded = decodeGeohash(geohash)
+              if (decoded) {
+                const bounds = L.latLngBounds(
+                  [decoded.bounds.minLat, decoded.bounds.minLng],
+                  [decoded.bounds.maxLat, decoded.bounds.maxLng]
+                )
+                mapRef.current.fitBounds(bounds, {
+                  animate: true,
+                  duration: 0.5,
+                  padding: [50, 50]
+                })
+              }
+              firstLocationReceived.current = true
             }
           },
           (error) => {
@@ -187,13 +213,10 @@ export function MapComponent() {
         // Watch for position changes
         watchIdRef.current = navigator.geolocation.watchPosition(
           (position) => {
-            if (mapRef.current) {
-              mapRef.current.setView(
-                [position.coords.latitude, position.coords.longitude],
-                mapRef.current.getZoom(),
-                { animate: true, duration: 0.5 }
-              )
-            }
+            const geohash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
+            setGeohashInput(geohash)
+
+            // Don't focus map on subsequent updates
           },
           (error) => {
             console.error('Error watching location:', error)
@@ -215,8 +238,82 @@ export function MapComponent() {
     }
   }, [])
 
+  // Handle geohash input changes - display on map
+  useEffect(() => {
+    if (!mapRef.current) return
+
+    // Remove previous user location marker
+    if (userLocationMarkerRef.current) {
+      userLocationMarkerRef.current.remove()
+      userLocationMarkerRef.current = null
+    }
+    if (userLocationCenterRef.current) {
+      userLocationCenterRef.current.remove()
+      userLocationCenterRef.current = null
+    }
+
+    if (geohashInput && geohashInput.length >= 1) {
+      const decoded = decodeGeohash(geohashInput)
+      if (decoded) {
+        // Add green rectangle for the geohash bounds
+        const bounds = L.latLngBounds(
+          [decoded.bounds.minLat, decoded.bounds.minLng],
+          [decoded.bounds.maxLat, decoded.bounds.maxLng]
+        )
+
+        userLocationMarkerRef.current = L.rectangle(bounds, {
+          color: '#10b981',  // green-500
+          weight: 2,
+          opacity: 0.8,
+          fillColor: '#10b981',
+          fillOpacity: 0.2
+        }).addTo(mapRef.current)
+
+        // Add green center marker
+        const greenIcon = L.divIcon({
+          html: `
+            <div style="
+              background: #10b981;
+              border: 2px solid white;
+              border-radius: 50%;
+              width: 12px;
+              height: 12px;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            "></div>
+          `,
+          className: 'custom-green-marker',
+          iconSize: [12, 12],
+          iconAnchor: [6, 6]
+        })
+
+        userLocationCenterRef.current = L.marker([decoded.lat, decoded.lng], { icon: greenIcon })
+          .addTo(mapRef.current)
+
+        // Focus map on this location if user typed it (not from location query)
+        if (!isQueryingLocation) {
+          // Fit the map to show the entire geohash rectangle with some padding
+          mapRef.current.fitBounds(bounds, {
+            animate: true,
+            duration: 0.5,
+            padding: [50, 50] // Add padding around the bounds
+          })
+        }
+      }
+    }
+  }, [geohashInput, isQueryingLocation])
+
+  const handleGeohashChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isQueryingLocation) {
+      setGeohashInput(e.target.value)
+    }
+  }
+
+  const handleShareLocation = () => {
+    setShowShareModal(true)
+  }
+
   return (
-    <Box position="relative" width="100%" height="100vh">
+    <Box position="relative" width="100%" height="100%" overflow="hidden">
       <Box
         ref={mapContainerRef}
         data-testid="map-container"
@@ -224,29 +321,60 @@ export function MapComponent() {
         height="100%"
       />
 
-      {/* Location Query Button */}
-      <Tooltip
-        label={isQueryingLocation ? 'Stop location tracking' : 'Track my location'}
-        placement="left"
+      {/* Location Panel */}
+      <Box
+        position="absolute"
+        top="80px"
+        right="4"
+        zIndex="1000"
+        bg="white"
+        borderRadius="md"
+        boxShadow="md"
+        p={2}
       >
-        <IconButton
-          aria-label="Query Location"
-          icon={<span>{isQueryingLocation ? '📍' : '📍'}</span>}
-          size="md"
-          position="absolute"
-          top="80px"
-          right="4"
-          zIndex="1000"
-          onClick={toggleLocationQuery}
-          colorScheme={isQueryingLocation ? 'blue' : 'gray'}
-          variant={isQueryingLocation ? 'solid' : 'outline'}
-          bg={isQueryingLocation ? 'blue.500' : 'white'}
-          _hover={{
-            transform: 'scale(1.05)',
-            bg: isQueryingLocation ? 'blue.600' : 'gray.100'
-          }}
-        />
-      </Tooltip>
+        <HStack spacing={2}>
+          <Input
+            placeholder="Geohash"
+            value={geohashInput}
+            onChange={handleGeohashChange}
+            isDisabled={isQueryingLocation}
+            size="sm"
+            width="150px"
+            fontFamily="mono"
+          />
+          <Tooltip label="Share location">
+            <IconButton
+              aria-label="Share Location"
+              icon={<span>📤</span>}
+              size="sm"
+              onClick={handleShareLocation}
+              variant="outline"
+            />
+          </Tooltip>
+          <Tooltip label={isQueryingLocation ? 'Stop tracking' : 'Track location'}>
+            <IconButton
+              aria-label="Query Location"
+              icon={<span>📍</span>}
+              size="sm"
+              onClick={toggleLocationQuery}
+              colorScheme={isQueryingLocation ? 'blue' : 'gray'}
+              variant={isQueryingLocation ? 'solid' : 'outline'}
+            />
+          </Tooltip>
+        </HStack>
+      </Box>
+
+      {/* Share Modal */}
+      <Modal isOpen={showShareModal} onClose={() => setShowShareModal(false)} size="md">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Share Location</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            <Text>To be implemented</Text>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </Box>
   )
 }
