@@ -333,15 +333,17 @@ export function MapComponent() {
         p={2}
       >
         <HStack spacing={2}>
-          <Input
-            placeholder="Geohash"
-            value={geohashInput}
-            onChange={handleGeohashChange}
-            isDisabled={isQueryingLocation}
-            size="sm"
-            width="150px"
-            fontFamily="mono"
-          />
+          <Tooltip label="Your location as geohash" placement="bottom">
+            <Input
+              placeholder="Geohash"
+              value={geohashInput}
+              onChange={handleGeohashChange}
+              isDisabled={isQueryingLocation}
+              size="sm"
+              width="150px"
+              fontFamily="mono"
+            />
+          </Tooltip>
           <Tooltip label="Share location">
             <IconButton
               aria-label="Share Location"
