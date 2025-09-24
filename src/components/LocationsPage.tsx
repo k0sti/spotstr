@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Box,
   Button,
@@ -41,7 +41,7 @@ import { mapService } from '../services/mapService'
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
-  const { locationEvents, clearAllLocations, publishLocationEvent, connectedRelays } = useNostr()
+  const { locationEvents, clearAllLocations, publishLocationEvent, connectedRelays, decryptLocationEvents } = useNostr()
   const accounts = useAccounts()
   const toast = useToast()
   const cancelRef = useRef(null)
@@ -54,6 +54,21 @@ export function LocationsPage() {
 
   // All accounts have signing capability
   const accountsWithSigningCapability = accounts
+
+  // Decrypt location events when accounts are available or when new events arrive
+  useEffect(() => {
+    if (accounts.length > 0) {
+      // Initial decryption
+      decryptLocationEvents(accounts)
+    }
+  }, [accounts, decryptLocationEvents])
+
+  // Also trigger decryption when location events change
+  useEffect(() => {
+    if (accounts.length > 0 && locationEvents.some(e => e.geohash === 'encrypted')) {
+      decryptLocationEvents(accounts)
+    }
+  }, [locationEvents, accounts, decryptLocationEvents])
 
   const queryDeviceLocation = async () => {
     if (!navigator.geolocation) {

@@ -13,6 +13,7 @@ class NostrApplesauceService {
   private connectedRelays: Map<string, Relay> = new Map()
   private updateCallbacks: Set<() => void> = new Set()
   private activeSubscriptions: Map<string, any> = new Map()
+  private newEncryptedEventCallbacks: Set<() => void> = new Set()
 
   constructor() {
     this.loadFromStorage()
@@ -185,6 +186,9 @@ class NostrApplesauceService {
     }
 
     this.addLocationEvent(locationEvent)
+
+    // Trigger decryption attempt notification
+    this.notifyNewEncryptedEvent()
   }
 
   private extractAllTags(tags: any[]): Record<string, any> {
@@ -201,6 +205,73 @@ class NostrApplesauceService {
       }
     })
     return tagObj
+  }
+
+  // Decrypt location events using available accounts
+  async decryptLocationEvents(accounts: any[]) {
+    const updatedEvents: LocationEvent[] = []
+    let hasUpdates = false
+
+    for (const event of this.locationEvents) {
+      // Only process encrypted private events
+      if (event.eventKind === 30473 && event.encryptedContent && event.geohash === 'encrypted') {
+        let decrypted = false
+
+        // Try to decrypt with each account
+        for (const account of accounts) {
+          try {
+            // Check if this account is the recipient
+            const accountNpub = nip19.npubEncode(account.pubkey)
+            if (event.receiverNpub !== accountNpub) {
+              continue
+            }
+
+            // Attempt decryption using NIP-44
+            if (account.signer.nip44?.decrypt) {
+              // Get sender's pubkey from npub
+              const senderPubkey = nip19.decode(event.senderNpub).data as string
+
+              const decryptedContent = await account.signer.nip44.decrypt(
+                senderPubkey,
+                event.encryptedContent
+              )
+
+              // Parse decrypted content (should be JSON array of tags)
+              const decryptedTags = JSON.parse(decryptedContent)
+              const allTags = this.extractAllTags(decryptedTags)
+
+              // Update the event with decrypted data
+              const updatedEvent: LocationEvent = {
+                ...event,
+                geohash: allTags.g || '',
+                tags: allTags,
+                name: allTags.title || allTags.name || event.dTag || undefined,
+              }
+
+              updatedEvents.push(updatedEvent)
+              decrypted = true
+              hasUpdates = true
+              break
+            }
+          } catch (error) {
+            console.error('Failed to decrypt location event:', error)
+          }
+        }
+
+        if (!decrypted) {
+          updatedEvents.push(event)
+        }
+      } else {
+        updatedEvents.push(event)
+      }
+    }
+
+    if (hasUpdates) {
+      this.locationEvents = updatedEvents
+      this.saveToStorage('locationEvents', this.locationEvents)
+      mapService.updateLocations(this.locationEvents)
+      this.notifyUpdate()
+    }
   }
 
   disconnectRelay(relayUrl: string) {
@@ -283,8 +354,19 @@ class NostrApplesauceService {
     }
   }
 
+  subscribeToNewEncryptedEvents(callback: () => void) {
+    this.newEncryptedEventCallbacks.add(callback)
+    return () => {
+      this.newEncryptedEventCallbacks.delete(callback)
+    }
+  }
+
   private notifyUpdate() {
     this.updateCallbacks.forEach(cb => cb())
+  }
+
+  private notifyNewEncryptedEvent() {
+    this.newEncryptedEventCallbacks.forEach(cb => cb())
   }
 }
 
@@ -328,6 +410,7 @@ export function useNostr() {
     publishLocationEvent: (event: any, relayUrls: string[], signer: any) => nostrService.publishLocationEvent(event, relayUrls, signer),
     disconnectAll: () => nostrService.disconnectAll(),
     clearAllLocations: () => nostrService.clearAllLocations(),
+    decryptLocationEvents: (accounts: any[]) => nostrService.decryptLocationEvents(accounts),
   }
 }
 
