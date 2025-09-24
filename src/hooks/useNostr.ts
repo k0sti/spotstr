@@ -68,7 +68,7 @@ class NostrApplesauceService {
       // Create subscription for location events (both public and private)
       const filter = {
         kinds: [30472, 30473],
-        limit: 100
+        // limit: 1000  // Increased from 100 to fetch more events
       }
 
       // Subscribe to events using req method which returns an Observable

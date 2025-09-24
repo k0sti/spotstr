@@ -266,10 +266,29 @@ export function LocationsPage() {
     return new Date(timestamp * 1000).toLocaleString()
   }
 
+  // Count public and private events
+  const publicCount = locationEvents.filter(e => e.eventKind === 30472).length
+  const privateCount = locationEvents.filter(e => e.eventKind === 30473).length
+  const encryptedCount = locationEvents.filter(e => e.geohash === 'encrypted').length
+
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <Text fontSize="lg" fontWeight="bold" color="gray.800">Locations</Text>
+        <HStack spacing={3}>
+          <Text fontSize="lg" fontWeight="bold" color="gray.800">Locations</Text>
+          <HStack spacing={2} fontSize="sm">
+            <Text color="gray.600">Total: {locationEvents.length}</Text>
+            {publicCount > 0 && (
+              <Badge colorScheme="blue" variant="subtle">Public: {publicCount}</Badge>
+            )}
+            {privateCount > 0 && (
+              <Badge colorScheme="red" variant="subtle">Private: {privateCount}</Badge>
+            )}
+            {encryptedCount > 0 && (
+              <Badge colorScheme="orange" variant="subtle">Encrypted: {encryptedCount}</Badge>
+            )}
+          </HStack>
+        </HStack>
         <HStack spacing={2}>
           <Button onClick={onOpen} size="sm" colorScheme="blue">Create New +</Button>
           <IconButton
