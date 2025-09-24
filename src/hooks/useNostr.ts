@@ -22,14 +22,9 @@ class NostrApplesauceService {
 
   // Location events management
   addLocationEvent(event: LocationEvent) {
-    // For addressable events, deduplicate by kind, pubkey, and d-tag
-    const addressableKey = `${event.senderNpub}:${event.dTag || ''}`
-
-    // Remove any existing event with the same addressable key
-    this.locationEvents = this.locationEvents.filter(e => {
-      const existingKey = `${e.senderNpub}:${e.dTag || ''}`
-      return existingKey !== addressableKey
-    })
+    // For addressable events, deduplicate by id (kind:pubkey:d-tag)
+    // Remove any existing event with the same addressable id
+    this.locationEvents = this.locationEvents.filter(e => e.id !== event.id)
 
     // Add the new event
     this.locationEvents.push(event)
@@ -69,9 +64,9 @@ class NostrApplesauceService {
       // Store the relay connection
       this.connectedRelays.set(relayUrl, relay)
 
-      // Create subscription for location events
+      // Create subscription for location events (both public and private)
       const filter = {
-        kinds: [30473],
+        kinds: [30472, 30473],
         limit: 100
       }
 
@@ -128,36 +123,84 @@ class NostrApplesauceService {
   }
 
   private async processLocationEvent(event: any) {
+    if (event.kind === 30472) {
+      this.processPublicLocationEvent(event)
+    } else if (event.kind === 30473) {
+      this.processPrivateLocationEvent(event)
+    }
+  }
+
+  private processPublicLocationEvent(event: any) {
     const senderNpub = event.pubkey ? nip19.npubEncode(event.pubkey) : ''
     const dTag = event.tags?.find((t: any) => t[0] === 'd')?.[1] || ''
-    const recipientPubkey = event.tags?.find((t: any) => t[0] === 'p')?.[1]
-    const recipientNpub = recipientPubkey ? nip19.npubEncode(recipientPubkey) : ''
+    const addressableId = `${event.kind}:${event.pubkey}:${dTag}`
 
-    const addressableId = `30473:${event.pubkey}:${dTag}`
-
-    let decryptedGeohash = 'encrypted'
-    let accuracy: number | undefined
-    let nameFromContent: string | undefined
-
-    // Decryption will be handled separately when needed
-    // Since we don't have access to accounts here, we can't automatically decrypt
+    // Extract all tags including geohash
+    const allTags = this.extractAllTags(event.tags)
+    const geohash = allTags.g || ''
+    const expiry = allTags.expiration
 
     const locationEvent: LocationEvent = {
       id: addressableId,
       eventId: event.id,
       created_at: event.created_at,
       senderNpub,
-      senderPubkey: event.pubkey,
-      receiverNpub: recipientNpub,
+      receiverNpub: undefined, // Public events have no receiver
       dTag,
-      geohash: decryptedGeohash,
-      accuracy,
-      expiry: event.tags?.find((t: any) => t[0] === 'expiration')?.[1],
-      name: nameFromContent || dTag || undefined,
-      encryptedContent: decryptedGeohash === 'encrypted' ? event.content : undefined,
+      geohash,
+      expiry,
+      name: allTags.title || dTag || undefined,
+      eventKind: 30472,
+      tags: allTags,
+      encryptedContent: undefined,
     }
 
     this.addLocationEvent(locationEvent)
+  }
+
+  private processPrivateLocationEvent(event: any) {
+    const senderNpub = event.pubkey ? nip19.npubEncode(event.pubkey) : ''
+    const dTag = event.tags?.find((t: any) => t[0] === 'd')?.[1] || ''
+    const recipientPubkey = event.tags?.find((t: any) => t[0] === 'p')?.[1]
+    const recipientNpub = recipientPubkey ? nip19.npubEncode(recipientPubkey) : ''
+    const addressableId = `${event.kind}:${event.pubkey}:${dTag}`
+    const expiry = event.tags?.find((t: any) => t[0] === 'expiration')?.[1]
+
+    // For now, mark as encrypted until decryption is performed
+    let decryptedGeohash = 'encrypted'
+
+    const locationEvent: LocationEvent = {
+      id: addressableId,
+      eventId: event.id,
+      created_at: event.created_at,
+      senderNpub,
+      receiverNpub: recipientNpub,
+      dTag,
+      geohash: decryptedGeohash,
+      expiry,
+      name: dTag || undefined,
+      eventKind: 30473,
+      tags: undefined, // Will be populated after decryption
+      encryptedContent: event.content,
+    }
+
+    this.addLocationEvent(locationEvent)
+  }
+
+  private extractAllTags(tags: any[]): Record<string, any> {
+    const tagObj: Record<string, any> = {}
+    tags?.forEach((tag: any[]) => {
+      const [key, ...values] = tag
+      if (key === 't') {
+        // Collect multiple hashtags
+        tagObj.t = tagObj.t || []
+        tagObj.t.push(values[0])
+      } else {
+        // Single value tags
+        tagObj[key] = values.length === 1 ? values[0] : values
+      }
+    })
+    return tagObj
   }
 
   disconnectRelay(relayUrl: string) {

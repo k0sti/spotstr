@@ -1,18 +1,18 @@
 import { useState, useRef } from 'react'
-import { 
-  Box, 
-  Button, 
-  Table, 
-  Thead, 
-  Tbody, 
-  Tr, 
-  Th, 
+import {
+  Box,
+  Button,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
   Td,
-  Modal, 
-  ModalOverlay, 
-  ModalContent, 
-  ModalHeader, 
-  ModalBody, 
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
   ModalCloseButton,
   ModalFooter,
   VStack,
@@ -30,7 +30,8 @@ import {
   AlertDialogHeader,
   AlertDialogContent,
   AlertDialogOverlay,
-  AlertDialogCloseButton
+  AlertDialogCloseButton,
+  Badge
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 import { useAccounts } from 'applesauce-react/hooks'
@@ -276,7 +277,7 @@ export function LocationsPage() {
             <Th>Event ID</Th>
             <Th>Created At</Th>
             <Th>Sender</Th>
-            <Th>Receiver</Th>
+            <Th>Recipient</Th>
           </Tr>
         </Thead>
         <Tbody>
@@ -309,7 +310,15 @@ export function LocationsPage() {
               <Td fontFamily="mono" fontSize="xs">{event.eventId.slice(0, 8)}...</Td>
               <Td fontSize="xs">{formatTimestamp(event.created_at)}</Td>
               <Td fontFamily="mono" fontSize="xs">{event.senderNpub.slice(0, 8)}...</Td>
-              <Td fontFamily="mono" fontSize="xs">{event.receiverNpub ? event.receiverNpub.slice(0, 8) + '...' : '(broadcast)'}</Td>
+              <Td fontSize="xs">
+                {event.eventKind === 30472 ? (
+                  <Badge colorScheme="blue">Public</Badge>
+                ) : (
+                  <Text fontFamily="mono" display="inline">
+                    {event.receiverNpub ? event.receiverNpub.slice(0, 8) + '...' : '(broadcast)'}
+                  </Text>
+                )}
+              </Td>
             </Tr>
           ))}
         </Tbody>

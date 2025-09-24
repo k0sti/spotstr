@@ -7,11 +7,11 @@ import { generateGeohash, decodeGeohash } from '../utils/crypto'
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css'
 
-// Create a custom marker icon using a data URL to avoid build issues
-const customIcon = L.divIcon({
+// Create custom marker icons for public and private events
+const createMarkerIcon = (color: string) => L.divIcon({
   html: `
     <div style="
-      background: #2563eb;
+      background: ${color};
       border: 2px solid white;
       border-radius: 50%;
       width: 12px;
@@ -24,6 +24,9 @@ const customIcon = L.divIcon({
   iconAnchor: [6, 6],
   popupAnchor: [0, -6]
 })
+
+const publicIcon = createMarkerIcon('#2563eb') // blue
+const privateIcon = createMarkerIcon('#dc2626') // red
 
 export function MapComponent() {
   const mapRef = useRef<L.Map | null>(null)
@@ -84,9 +87,11 @@ export function MapComponent() {
         // Highlight the focused rectangle
         const rect = rectanglesRef.current.get(location.id)
         if (rect) {
-          rect.setStyle({ color: '#ff0000', weight: 3 })
+          const isPublic = location.event.eventKind === 30472
+          const defaultColor = isPublic ? '#2563eb' : '#dc2626'
+          rect.setStyle({ color: '#fbbf24', weight: 3 }) // yellow highlight
           setTimeout(() => {
-            rect.setStyle({ color: '#0000ff', weight: 2 })
+            rect.setStyle({ color: defaultColor, weight: 2 })
           }, 2000)
         }
       }
@@ -111,47 +116,56 @@ export function MapComponent() {
     })
     rectanglesRef.current.clear()
 
-    // Add blue rectangles and center markers for each location
+    // Add rectangles and center markers for each location
     locations.forEach(location => {
       const bounds = L.latLngBounds(
         [location.bounds.minLat, location.bounds.minLng],
         [location.bounds.maxLat, location.bounds.maxLng]
       )
 
-      // Add blue rectangle for the geohash bounds
+      // Determine colors based on event kind
+      const isPublic = location.event.eventKind === 30472
+      const rectangleColor = isPublic ? '#2563eb' : '#dc2626' // blue for public, red for private
+      const markerIcon = isPublic ? publicIcon : privateIcon
+
+      // Add rectangle for the geohash bounds
       const rectangle = L.rectangle(bounds, {
-        color: '#0000ff',
+        color: rectangleColor,
         weight: 2,
         opacity: 0.8,
-        fillColor: '#0000ff',
+        fillColor: rectangleColor,
         fillOpacity: 0.2
       })
         .addTo(mapRef.current!)
 
-      // Add marker at the center of the location with custom icon
-      const marker = L.marker([location.lat, location.lng], { icon: customIcon })
+      // Add marker at the center of the location with appropriate icon
+      const marker = L.marker([location.lat, location.lng], { icon: markerIcon })
         .addTo(mapRef.current!)
         .bindPopup(`
           <div>
             <strong>${location.event.name || location.event.dTag || 'Location'}</strong><br/>
+            Type: ${location.event.eventKind === 30472 ? 'Public' : 'Private'}<br/>
             Geohash: ${location.event.geohash}<br/>
             From: ${location.event.senderNpub.slice(0, 8)}...<br/>
-            ${location.event.accuracy ? `Accuracy: ${location.event.accuracy}m` : ''}
+            ${location.event.tags?.accuracy ? `Accuracy: ${location.event.tags.accuracy}m` : ''}
+            ${location.event.tags?.title ? `<br/>Title: ${location.event.tags.title}` : ''}
           </div>
         `)
 
       // Add accuracy circle if accuracy is available
       let accuracyCircle = null
-      if (location.event.accuracy && location.event.accuracy > 0) {
+      const accuracy = location.event.tags?.accuracy
+      if (accuracy && accuracy > 0) {
+        const circleColor = isPublic ? '#3b82f6' : '#ef4444' // blue-500 for public, red-500 for private
         accuracyCircle = L.circle([location.lat, location.lng], {
-          radius: location.event.accuracy, // radius in meters
-          color: '#3b82f6', // blue-500
+          radius: accuracy, // radius in meters
+          color: circleColor,
           weight: 1,
           opacity: 0.6,
-          fillColor: '#3b82f6',
+          fillColor: circleColor,
           fillOpacity: 0.1
         }).addTo(mapRef.current!)
-        
+
       }
 
       // Store rectangle reference for highlighting

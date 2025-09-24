@@ -11,17 +11,19 @@ export interface Identity {
 
 export interface LocationEvent {
   id: string // For addressable events: "kind:pubkey:d-tag"
-  name?: string // Display name for the location (same as d-tag if provided)
+  name?: string // Display name for the location (from d-tag or tags.title)
   eventId: string // Nostr event ID
   created_at: number
   senderNpub: string
-  senderPubkey?: string // Store raw pubkey for decryption
-  receiverNpub?: string
+  receiverNpub?: string // For encrypted events only
   dTag?: string // d-tag for addressable events (empty string for single location)
   geohash: string
-  accuracy?: number
   expiry?: number
   encryptedContent?: string // Store encrypted content for later decryption
+
+  // New fields for public/private distinction
+  eventKind: 30472 | 30473 // Event kind to distinguish public/private
+  tags?: Record<string, any> // Generic metadata storage for all tags
 }
 
 export interface Settings {
