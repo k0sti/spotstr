@@ -463,8 +463,8 @@ export function MapComponent() {
       {/* Location Panel */}
       <Box
         position="absolute"
-        top="80px"
-        right="4"
+        bottom="4"
+        left="4"
         zIndex="1000"
         bg="white"
         borderRadius="md"
