@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, IconButton, Tooltip, Input, HStack, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, Text } from '@chakra-ui/react'
+import { Box, IconButton, Tooltip, Input, HStack, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, Text, useToast } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 import { generateGeohash, decodeGeohash } from '../utils/crypto'
@@ -28,6 +28,113 @@ const createMarkerIcon = (color: string) => L.divIcon({
 const publicIcon = createMarkerIcon('#2563eb') // blue
 const privateIcon = createMarkerIcon('#dc2626') // red
 
+// Helper function to create popup HTML with styled badges and copy functionality
+const createPopupContent = (location: MapLocation): string => {
+  const event = location.event
+  const isPublic = event.eventKind === 30472
+
+  // Escape strings for safe use in HTML attributes
+  const escapeHtml = (str: string) => {
+    return str.replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+
+  // Build hashtags HTML if they exist
+  let hashtagsHtml = ''
+  if (event.tags?.t && Array.isArray(event.tags.t)) {
+    hashtagsHtml = event.tags.t.map((tag: string) => {
+      const escapedTag = escapeHtml(tag)
+      return `<span onclick="window.mapCopyToClipboard('${escapedTag}', 'Hashtag')" style="
+        background: #6b7280;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        margin-right: 4px;
+        display: inline-block;
+        cursor: pointer;
+      " title="Click to copy">#${tag}</span>`
+    }).join('')
+  }
+
+  // Build other tags HTML (excluding special ones)
+  const excludeKeys = ['t', 'g', 'title', 'accuracy', 'expiration']
+  let otherTagsHtml = ''
+  if (event.tags) {
+    Object.entries(event.tags).forEach(([key, value]) => {
+      if (!excludeKeys.includes(key) && value) {
+        const escapedValue = escapeHtml(String(value))
+        otherTagsHtml += `<div style="font-size: 12px; margin-top: 2px;">
+          <strong>${key}:</strong>
+          <span onclick="window.mapCopyToClipboard('${escapedValue}', '${key}')" style="
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+          " title="Click to copy">${value}</span>
+        </div>`
+      }
+    })
+  }
+
+  return `
+    <div style="font-family: -apple-system, system-ui, sans-serif; min-width: 200px;">
+      ${event.name || event.dTag ? `<div style="font-weight: bold; margin-bottom: 8px;">${event.name || event.dTag}</div>` : ''}
+
+      <!-- First line: Type and Geohash badges -->
+      <div style="margin-bottom: 6px;">
+        <span style="
+          background: ${isPublic ? '#3b82f6' : '#dc2626'};
+          color: white;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 500;
+          margin-right: 4px;
+        ">${isPublic ? 'Public' : 'Private'}</span>
+        <span onclick="window.mapCopyToClipboard('${escapeHtml(event.geohash)}', 'Geohash')" style="
+          background: #10b981;
+          color: white;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 11px;
+          cursor: pointer;
+          font-family: monospace;
+        " title="Click to copy">${event.geohash}</span>
+      </div>
+
+      <!-- Hashtags line if exists -->
+      ${hashtagsHtml ? `<div style="margin-bottom: 6px;">${hashtagsHtml}</div>` : ''}
+
+      <!-- Source line -->
+      <div style="margin-bottom: 6px;">
+        <span style="font-size: 12px; color: #4b5563;">source:</span>
+        <span onclick="window.mapCopyToClipboard('${escapeHtml(event.senderNpub)}', 'Public key')" style="
+          background: #fbbf24;
+          color: #78350f;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 11px;
+          cursor: pointer;
+          font-family: monospace;
+          margin-left: 4px;
+        " title="Click to copy">${event.senderNpub.slice(0, 8)}...</span>
+      </div>
+
+      <!-- Accuracy if present -->
+      ${event.tags?.accuracy ? `<div style="font-size: 12px; margin-top: 2px;">
+        <strong>accuracy:</strong>
+        <span onclick="window.mapCopyToClipboard('${event.tags.accuracy}', 'Accuracy')" style="
+          cursor: pointer;
+          text-decoration: underline;
+          text-decoration-style: dotted;
+        " title="Click to copy">${event.tags.accuracy}m</span>
+      </div>` : ''}
+
+      <!-- Other tags -->
+      ${otherTagsHtml}
+    </div>
+  `
+}
+
 export function MapComponent() {
   const mapRef = useRef<L.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
@@ -40,6 +147,33 @@ export function MapComponent() {
   const userLocationMarkerRef = useRef<L.Rectangle | null>(null)
   const userLocationCenterRef = useRef<L.Marker | null>(null)
   const firstLocationReceived = useRef(false)
+  const toast = useToast()
+
+  // Copy to clipboard with toast notification
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast({
+        title: `${label} copied`,
+        status: 'success',
+        duration: 2000,
+      })
+    } catch (error) {
+      toast({
+        title: 'Failed to copy',
+        status: 'error',
+        duration: 2000,
+      })
+    }
+  }
+
+  // Make the copy function available globally for popup clicks
+  useEffect(() => {
+    (window as any).mapCopyToClipboard = copyToClipboard
+    return () => {
+      delete (window as any).mapCopyToClipboard
+    }
+  }, [copyToClipboard])
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
@@ -141,16 +275,7 @@ export function MapComponent() {
       // Add marker at the center of the location with appropriate icon
       const marker = L.marker([location.lat, location.lng], { icon: markerIcon })
         .addTo(mapRef.current!)
-        .bindPopup(`
-          <div>
-            <strong>${location.event.name || location.event.dTag || 'Location'}</strong><br/>
-            Type: ${location.event.eventKind === 30472 ? 'Public' : 'Private'}<br/>
-            Geohash: ${location.event.geohash}<br/>
-            From: ${location.event.senderNpub.slice(0, 8)}...<br/>
-            ${location.event.tags?.accuracy ? `Accuracy: ${location.event.tags.accuracy}m` : ''}
-            ${location.event.tags?.title ? `<br/>Title: ${location.event.tags.title}` : ''}
-          </div>
-        `)
+        .bindPopup(createPopupContent(location))
 
       // Add accuracy circle if accuracy is available
       let accuracyCircle = null
