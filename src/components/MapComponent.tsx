@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, IconButton, Tooltip, Input, HStack, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, Text, useToast } from '@chakra-ui/react'
+import { Box, IconButton, Tooltip, Input, HStack, useToast } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 import { generateGeohash, decodeGeohash } from '../utils/crypto'
 import { getGeolocationImplementation } from '../utils/locationSimulator'
+import { ShareLocationPopup } from './ShareLocationPopup'
 
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css'
@@ -574,17 +575,12 @@ export function MapComponent() {
         </HStack>
       </Box>
 
-      {/* Share Modal */}
-      <Modal isOpen={showShareModal} onClose={() => setShowShareModal(false)} size="md">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Share Location</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody pb={6}>
-            <Text>To be implemented</Text>
-          </ModalBody>
-        </ModalContent>
-      </Modal>
+      {/* Share Location Popup */}
+      <ShareLocationPopup
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        initialGeohash={geohashInput}
+      />
     </Box>
   )
 }
