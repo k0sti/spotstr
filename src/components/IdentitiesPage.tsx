@@ -26,7 +26,11 @@ import {
   ButtonGroup,
   Link,
   Divider,
-  Spinner
+  Spinner,
+  Editable,
+  EditableInput,
+  EditablePreview,
+  Avatar
 } from '@chakra-ui/react'
 import { useAccountManager, useAccounts } from 'applesauce-react/hooks'
 import { ExtensionAccount, SimpleAccount, NostrConnectAccount } from 'applesauce-accounts/accounts'
@@ -34,6 +38,7 @@ import { ExtensionSigner, SimpleSigner, NostrConnectSigner } from 'applesauce-si
 import { npubEncode } from 'nostr-tools/nip19'
 import { generateNostrKeyPair } from '../utils/crypto'
 import { fetchProfile } from '../utils/profileRelays'
+import { useAccountCustomNames } from '../hooks/useAccountCustomNames'
 
 // Check if we're on Android
 const IS_WEB_ANDROID = /android/i.test(navigator.userAgent)
@@ -60,10 +65,12 @@ const getAccountTypeLabel = (type: string) => {
 }
 
 // Identity Row Component
-function IdentityRow({ account, onDelete, onCopy }: {
+function IdentityRow({ account, onDelete, onCopy, customName, onUpdateCustomName }: {
   account: any
   onDelete: (account: any) => void
   onCopy: (text: string, label: string) => void
+  customName?: string
+  onUpdateCustomName: (pubkey: string, name: string) => void
 }) {
   const npubFull = useMemo(() => {
     try {
@@ -89,29 +96,30 @@ function IdentityRow({ account, onDelete, onCopy }: {
         </Badge>
       </Td>
       <Td>
-        <HStack spacing={2}>
-          {account.metadata?.picture && (
-            <Box
-              width="24px"
-              height="24px"
-              borderRadius="full"
-              overflow="hidden"
-              flexShrink={0}
+        <HStack spacing={3}>
+          <Avatar
+            size="sm"
+            src={account.metadata?.picture}
+            name={account.metadata?.name || customName || 'Unknown'}
+          />
+          <VStack align="start" spacing={0}>
+            {account.metadata?.name && (
+              <Text fontSize="sm" fontWeight="medium">
+                {account.metadata.name}
+              </Text>
+            )}
+            <Editable
+              defaultValue={customName || ''}
+              placeholder={account.metadata?.name ? 'Add custom name' : 'Custom name'}
+              onSubmit={(value) => onUpdateCustomName(account.pubkey, value)}
+              fontSize="xs"
+              color="blue.600"
+              fontStyle="italic"
             >
-              <img
-                src={account.metadata.picture}
-                alt={account.metadata?.name || 'Profile'}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                onError={(e) => {
-                  // Hide image on error
-                  (e.target as HTMLImageElement).style.display = 'none'
-                }}
-              />
-            </Box>
-          )}
-          <Text fontSize="sm">
-            {account.metadata?.name || 'Unnamed'}
-          </Text>
+              <EditablePreview />
+              <EditableInput />
+            </Editable>
+          </VStack>
         </HStack>
       </Td>
       <Td>
@@ -151,6 +159,7 @@ export function IdentitiesPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const manager = useAccountManager()
   const accountsList = useAccounts()
+  const { customNames, setCustomName } = useAccountCustomNames()
   const toast = useToast()
   const [nameInput, setNameInput] = useState('')
   const [bunkerUri, setBunkerUri] = useState('')
@@ -203,23 +212,24 @@ export function IdentitiesPage() {
       if (profile) {
         // Store profile data in account metadata
         account.metadata = {
-          name: profile.display_name || profile.name || 'Extension Account',
+          ...profile,
+          display_name: profile.display_name,
+          name: profile.name,
           picture: profile.picture,
           about: profile.about,
-          nip05: profile.nip05,
-          ...profile
+          nip05: profile.nip05
         }
         console.log('Fetched profile for extension account:', profile)
       } else {
-        account.metadata = { name: 'Extension Account' }
+        account.metadata = {}
       }
 
       manager.addAccount(account)
 
       toast({
         title: 'Extension connected',
-        description: profile ?
-          `Connected as ${profile.display_name || profile.name || 'Extension User'}` :
+        description: profile?.name ?
+          `Connected as ${profile.name}` :
           'Successfully connected to browser extension',
         status: 'success',
         duration: 3000,
@@ -295,14 +305,15 @@ export function IdentitiesPage() {
         const profile = await fetchProfile(pubkey)
         if (profile) {
           account.metadata = {
-            name: profile.display_name || profile.name || 'Amber Account',
+            ...profile,
+            display_name: profile.display_name,
+            name: profile.name,
             picture: profile.picture,
             about: profile.about,
-            nip05: profile.nip05,
-            ...profile
+            nip05: profile.nip05
           }
         } else {
-          account.metadata = { name: 'Amber Account' }
+          account.metadata = {}
         }
 
         manager.addAccount(account)
@@ -373,14 +384,15 @@ export function IdentitiesPage() {
       const profile = await fetchProfile(pubkey)
       if (profile) {
         account.metadata = {
-          name: profile.display_name || profile.name || 'Bunker Account',
+          ...profile,
+          display_name: profile.display_name,
+          name: profile.name,
           picture: profile.picture,
           about: profile.about,
-          nip05: profile.nip05,
-          ...profile
+          nip05: profile.nip05
         }
       } else {
-        account.metadata = { name: 'Bunker Account' }
+        account.metadata = {}
       }
 
       manager.addAccount(account)
@@ -415,9 +427,14 @@ export function IdentitiesPage() {
       const pubkey = await signer.getPublicKey()
 
       const account = new SimpleAccount(pubkey, signer)
-      account.metadata = { name: nameInput || 'Ephemeral Account' }
+      account.metadata = {}
 
       manager.addAccount(account)
+
+      // Set the custom name if provided
+      if (nameInput) {
+        setCustomName(pubkey, nameInput)
+      }
 
       toast({
         title: 'Ephemeral account created',
@@ -492,6 +509,8 @@ export function IdentitiesPage() {
               account={account}
               onDelete={handleDeleteAccount}
               onCopy={copyToClipboard}
+              customName={customNames[account.pubkey]}
+              onUpdateCustomName={setCustomName}
             />
           ))}
         </Tbody>
