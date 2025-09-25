@@ -23,6 +23,7 @@ import {
 import { useAccounts } from 'applesauce-react/hooks'
 import { useNostr } from '../hooks/useNostr'
 import { useGroups } from '../hooks/useGroups'
+import { useContacts } from '../hooks/useContacts'
 import { generateGeohash, npubToHex } from '../utils/crypto'
 import { getGeolocationImplementation } from '../utils/locationSimulator'
 import { createLocationEvent, signAndPublishLocationEvent } from '../utils/locationEvents'
@@ -44,10 +45,11 @@ export function ShareLocationPopup({
   const accounts = useAccounts()
   const { publishLocationEvent, connectedRelays } = useNostr()
   const { groups } = useGroups()
+  const { contacts } = useContacts()
 
   const [geohash, setGeohash] = useState(initialGeohash)
   const [selectedSender, setSelectedSender] = useState('')
-  const [selectedGroup, setSelectedGroup] = useState('')
+  const [selectedReceiver, setSelectedReceiver] = useState('')
   const [isPublishing, setIsPublishing] = useState(false)
   const [eventCount, setEventCount] = useState(0)
 
@@ -70,12 +72,16 @@ export function ShareLocationPopup({
     }
   }, [accounts, selectedSender])
 
-  // Set first group as default receiver
+  // Set first group or contact as default receiver
   useEffect(() => {
-    if (groups.length > 0 && !selectedGroup) {
-      setSelectedGroup(groups[0].id)
+    if (!selectedReceiver) {
+      if (groups.length > 0) {
+        setSelectedReceiver(`group:${groups[0].id}`)
+      } else if (contacts.length > 0) {
+        setSelectedReceiver(`contact:${contacts[0].id}`)
+      }
     }
-  }, [groups, selectedGroup])
+  }, [groups, contacts, selectedReceiver])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -199,10 +205,10 @@ export function ShareLocationPopup({
       return
     }
 
-    if (!selectedSender || !selectedGroup) {
+    if (!selectedSender || !selectedReceiver) {
       toast({
         title: 'Missing information',
-        description: 'Please select both sender and receiver group',
+        description: 'Please select both sender and receiver',
         status: 'warning',
         duration: 3000,
       })
@@ -230,14 +236,25 @@ export function ShareLocationPopup({
         throw new Error('Sender account not found')
       }
 
-      // Get selected group
-      const group = groups.find(g => g.id === selectedGroup)
-      if (!group) {
-        throw new Error('Group not found')
+      // Get receiver's public key
+      let receiverPublicKey: string
+      if (selectedReceiver.startsWith('group:')) {
+        const groupId = selectedReceiver.slice(6)
+        const group = groups.find(g => g.id === groupId)
+        if (!group) {
+          throw new Error('Group not found')
+        }
+        receiverPublicKey = npubToHex(group.npub)
+      } else if (selectedReceiver.startsWith('contact:')) {
+        const contactId = selectedReceiver.slice(8)
+        const contact = contacts.find(c => c.id === contactId)
+        if (!contact) {
+          throw new Error('Contact not found')
+        }
+        receiverPublicKey = contact.pubkey
+      } else {
+        throw new Error('Invalid receiver')
       }
-
-      // Get group's public key from npub
-      const receiverPublicKey = npubToHex(group.npub)
 
       // Create location event with 1 minute expiry for real-time sharing
       const { unsignedEvent } = await createLocationEvent({
@@ -374,18 +391,33 @@ export function ShareLocationPopup({
             <FormControl>
               <FormLabel fontSize="sm">To</FormLabel>
               <Select
-                value={selectedGroup}
-                onChange={(e) => setSelectedGroup(e.target.value)}
+                value={selectedReceiver}
+                onChange={(e) => setSelectedReceiver(e.target.value)}
                 size="sm"
               >
-                {groups.length === 0 ? (
-                  <option value="">No groups available</option>
+                {groups.length === 0 && contacts.length === 0 ? (
+                  <option value="">No recipients available</option>
                 ) : (
-                  groups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))
+                  <>
+                    {groups.length > 0 && (
+                      <optgroup label="Groups">
+                        {groups.map((group) => (
+                          <option key={group.id} value={`group:${group.id}`}>
+                            {group.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {contacts.length > 0 && (
+                      <optgroup label="Contacts">
+                        {contacts.map((contact) => (
+                          <option key={contact.id} value={`contact:${contact.id}`}>
+                            {contact.customName || contact.metadata?.name || contact.npub.slice(0, 16) + '...'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
                 )}
               </Select>
             </FormControl>
@@ -398,10 +430,10 @@ export function ShareLocationPopup({
               </Box>
             )}
 
-            {groups.length === 0 && (
+            {groups.length === 0 && contacts.length === 0 && (
               <Box p={2} bg="orange.50" borderRadius="md">
                 <Text fontSize="sm" color="orange.800">
-                  Please create or import a group first to share locations
+                  Please create a group or add a contact first to share locations
                 </Text>
               </Box>
             )}
@@ -425,9 +457,9 @@ export function ShareLocationPopup({
             isDisabled={
               !geohash ||
               !selectedSender ||
-              !selectedGroup ||
+              !selectedReceiver ||
               accounts.length === 0 ||
-              groups.length === 0 ||
+              (groups.length === 0 && contacts.length === 0) ||
               connectedRelays.length === 0
             }
           >

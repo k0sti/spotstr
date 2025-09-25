@@ -24,6 +24,7 @@ import {
 import { useAccounts } from 'applesauce-react/hooks'
 import { useNostr } from '../hooks/useNostr'
 import { useGroups } from '../hooks/useGroups'
+import { useContacts } from '../hooks/useContacts'
 import { generateGeohash, npubToHex } from '../utils/crypto'
 import { getGeolocationImplementation } from '../utils/locationSimulator'
 import { createLocationEvent, signAndPublishLocationEvent, parseExpiryTime } from '../utils/locationEvents'
@@ -39,6 +40,7 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
   const accounts = useAccounts()
   const { publishLocationEvent, connectedRelays } = useNostr()
   const { groups } = useGroups()
+  const { contacts } = useContacts()
 
   const [geohash, setGeohash] = useState(initialGeohash)
   const [locationName, setLocationName] = useState('')
@@ -183,11 +185,23 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
       let receiverPublicKey: string | null = null
 
       if (!isPublic) {
-        const group = groups.find(g => g.id === selectedReceiver)
-        if (!group) {
-          throw new Error('Selected group not found')
+        if (selectedReceiver.startsWith('group:')) {
+          const groupId = selectedReceiver.slice(6)
+          const group = groups.find(g => g.id === groupId)
+          if (!group) {
+            throw new Error('Selected group not found')
+          }
+          receiverPublicKey = npubToHex(group.npub)
+        } else if (selectedReceiver.startsWith('contact:')) {
+          const contactId = selectedReceiver.slice(8)
+          const contact = contacts.find(c => c.id === contactId)
+          if (!contact) {
+            throw new Error('Selected contact not found')
+          }
+          receiverPublicKey = contact.pubkey
+        } else {
+          throw new Error('Invalid receiver')
         }
-        receiverPublicKey = npubToHex(group.npub)
       }
 
       // Prepare additional tags
@@ -341,11 +355,24 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
                 size="sm"
               >
                 <option value="public">Public (kind:30472)</option>
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name} (private)
-                  </option>
-                ))}
+                {groups.length > 0 && (
+                  <optgroup label="Groups">
+                    {groups.map((group) => (
+                      <option key={group.id} value={`group:${group.id}`}>
+                        {group.name} (private)
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {contacts.length > 0 && (
+                  <optgroup label="Contacts">
+                    {contacts.map((contact) => (
+                      <option key={contact.id} value={`contact:${contact.id}`}>
+                        {contact.customName || contact.metadata?.name || contact.npub.slice(0, 16) + '...'} (private)
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </Select>
             </FormControl>
 
