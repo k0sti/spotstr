@@ -4,6 +4,7 @@ import { IdentitiesPage } from './components/IdentitiesPage'
 import { LocationsPage } from './components/LocationsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { ContactsPage } from './components/ContactsPage'
+import { GroupsPage } from './components/GroupsPage'
 import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
 import { AccountsProvider } from 'applesauce-react'
@@ -21,7 +22,7 @@ import {
   Image
 } from '@chakra-ui/react'
 
-type PageType = 'identities' | 'locations' | 'settings' | 'contacts' | null
+type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' | null
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageType>(null)
@@ -80,12 +81,14 @@ function AppContent() {
     switch (currentPage) {
       case 'identities':
         return <IdentitiesPage />
+      case 'contacts':
+        return <ContactsPage />
+      case 'groups':
+        return <GroupsPage />
       case 'locations':
         return <LocationsPage />
       case 'settings':
         return <SettingsPage />
-      case 'contacts':
-        return <ContactsPage />
       default:
         return <IdentitiesPage />
     }
@@ -151,6 +154,24 @@ function AppContent() {
                   variant={currentPage === 'identities' ? 'solid' : 'outline'}
                 />
               </Tooltip>
+              <Tooltip label="Contacts" placement="bottom">
+                <IconButton
+                  aria-label="Contacts"
+                  icon={<span>🔗</span>}
+                  size="sm"
+                  onClick={() => handlePageClick('contacts')}
+                  variant={currentPage === 'contacts' ? 'solid' : 'outline'}
+                />
+              </Tooltip>
+              <Tooltip label="Groups" placement="bottom">
+                <IconButton
+                  aria-label="Groups"
+                  icon={<span>👥</span>}
+                  size="sm"
+                  onClick={() => handlePageClick('groups')}
+                  variant={currentPage === 'groups' ? 'solid' : 'outline'}
+                />
+              </Tooltip>
               <Tooltip label="Locations" placement="bottom">
                 <IconButton
                   aria-label="Locations"
@@ -167,15 +188,6 @@ function AppContent() {
                   size="sm"
                   onClick={() => handlePageClick('settings')}
                   variant={currentPage === 'settings' ? 'solid' : 'outline'}
-                />
-              </Tooltip>
-              <Tooltip label="Contacts" placement="bottom">
-                <IconButton
-                  aria-label="Contacts"
-                  icon={<span>🔗</span>}
-                  size="sm"
-                  onClick={() => handlePageClick('contacts')}
-                  variant={currentPage === 'contacts' ? 'solid' : 'outline'}
                 />
               </Tooltip>
               <Tooltip label="View on GitHub" placement="bottom">
