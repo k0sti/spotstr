@@ -24,6 +24,7 @@ import {
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 import { useAccounts } from 'applesauce-react/hooks'
+import { useGroups } from '../hooks/useGroups'
 import { mapService } from '../services/mapService'
 import { ShareLocationPopup } from './ShareLocationPopup'
 
@@ -32,23 +33,24 @@ export function LocationsPage() {
   const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
   const { locationEvents, clearAllLocations, decryptLocationEvents } = useNostr()
   const accounts = useAccounts()
+  const { groups } = useGroups()
   const toast = useToast()
   const cancelRef = useRef(null)
 
-  // Decrypt location events when accounts are available or when new events arrive
+  // Decrypt location events when accounts or groups are available or when new events arrive
   useEffect(() => {
-    if (accounts.length > 0) {
-      // Initial decryption
+    if (accounts.length > 0 || groups.length > 0) {
+      // Initial decryption with both accounts and groups
       decryptLocationEvents(accounts)
     }
-  }, [accounts, decryptLocationEvents])
+  }, [accounts, groups, decryptLocationEvents])
 
   // Also trigger decryption when location events change
   useEffect(() => {
-    if (accounts.length > 0 && locationEvents.some(e => e.geohash === 'encrypted')) {
+    if ((accounts.length > 0 || groups.length > 0) && locationEvents.some(e => e.geohash === 'encrypted')) {
       decryptLocationEvents(accounts)
     }
-  }, [locationEvents, accounts, decryptLocationEvents])
+  }, [locationEvents, accounts, groups, decryptLocationEvents])
 
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp * 1000).toLocaleString()

@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { EventStore } from 'applesauce-core'
 import { Relay } from 'applesauce-relay'
 import * as nip19 from 'nostr-tools/nip19'
+import * as nip44 from 'nostr-tools/nip44'
 import { LocationEvent } from '../types'
 import { mapService } from '../services/mapService'
+import { groupsManager } from '../services/groups'
 
 // Initialize Applesauce EventStore
 const eventStore = new EventStore()
@@ -207,17 +209,18 @@ class NostrApplesauceService {
     return tagObj
   }
 
-  // Decrypt location events using available accounts
+  // Decrypt location events using available accounts and groups
   async decryptLocationEvents(accounts: any[]) {
     const updatedEvents: LocationEvent[] = []
     let hasUpdates = false
+    const groups = groupsManager.groups$.value
 
     for (const event of this.locationEvents) {
       // Only process encrypted private events
       if (event.eventKind === 30473 && event.encryptedContent && event.geohash === 'encrypted') {
         let decrypted = false
 
-        // Try to decrypt with each account
+        // First try to decrypt with accounts
         for (const account of accounts) {
           try {
             // Check if this account is the recipient
@@ -254,7 +257,53 @@ class NostrApplesauceService {
               break
             }
           } catch (error) {
-            console.error('Failed to decrypt location event:', error)
+            console.error('Failed to decrypt location event with account:', error)
+          }
+        }
+
+        // If not decrypted with accounts, try with groups
+        if (!decrypted) {
+          for (const group of groups) {
+            try {
+              // Check if this group is the recipient
+              if (event.receiverNpub !== group.npub) {
+                continue
+              }
+
+              // Get sender's pubkey from npub
+              const senderPubkey = nip19.decode(event.senderNpub).data as string
+
+              // Get group's private key from nsec
+              const groupSecretKey = nip19.decode(group.nsec).data as Uint8Array
+
+              // Get conversation key for decryption
+              const conversationKey = nip44.v2.utils.getConversationKey(
+                groupSecretKey,
+                senderPubkey
+              )
+
+              // Decrypt the content
+              const decryptedContent = nip44.v2.decrypt(event.encryptedContent, conversationKey)
+
+              // Parse decrypted content (should be JSON array of tags)
+              const decryptedTags = JSON.parse(decryptedContent)
+              const allTags = this.extractAllTags(decryptedTags)
+
+              // Update the event with decrypted data
+              const updatedEvent: LocationEvent = {
+                ...event,
+                geohash: allTags.g || '',
+                tags: allTags,
+                name: allTags.title || allTags.name || event.dTag || undefined,
+              }
+
+              updatedEvents.push(updatedEvent)
+              decrypted = true
+              hasUpdates = true
+              break
+            } catch (error) {
+              console.error('Failed to decrypt location event with group:', error)
+            }
           }
         }
 
