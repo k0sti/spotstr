@@ -223,6 +223,18 @@ const theme = extendTheme({
     global: {
       'html, body': {
         fontSize: { base: '14px', md: '16px' },
+        // Use dynamic viewport height to account for browser UI
+        width: '100%',
+        height: '100dvh',  // Dynamic viewport height
+        margin: 0,
+        padding: 0,
+        overflow: 'hidden',
+      },
+      // Ensure root fills actual visible viewport
+      '#root': {
+        width: '100%',
+        height: '100dvh',  // Dynamic viewport height
+        position: 'relative',
       },
       // Additional mobile optimizations
       '@media (max-width: 480px)': {

@@ -93,7 +93,7 @@ function AppContent() {
 
   return (
     <ChakraProvider>
-      <Box height="100vh" position="relative">
+      <Box height="100dvh" position="relative">
         {/* Background Map */}
         <MapComponent />
         
