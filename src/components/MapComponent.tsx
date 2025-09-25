@@ -3,6 +3,7 @@ import { Box, IconButton, Tooltip, Input, HStack, Modal, ModalOverlay, ModalCont
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 import { generateGeohash, decodeGeohash } from '../utils/crypto'
+import { getGeolocationImplementation } from '../utils/locationSimulator'
 
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css'
@@ -144,6 +145,7 @@ export function MapComponent() {
   const watchIdRef = useRef<number | null>(null)
   const [geohashInput, setGeohashInput] = useState('')
   const [showShareModal, setShowShareModal] = useState(false)
+  const [locationButtonColor, setLocationButtonColor] = useState<'gray' | 'blue' | 'red' | 'yellow'>('gray')
   const userLocationMarkerRef = useRef<L.Rectangle | null>(null)
   const userLocationCenterRef = useRef<L.Marker | null>(null)
   const firstLocationReceived = useRef(false)
@@ -305,25 +307,34 @@ export function MapComponent() {
   }, [locations])
 
   const toggleLocationQuery = () => {
+    const geolocation = getGeolocationImplementation()
+
     if (isQueryingLocation) {
       // Stop querying location
+      console.log('[MapComponent] Stopping location, watchId:', watchIdRef.current)
       if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current)
+        geolocation.clearWatch(watchIdRef.current)
         watchIdRef.current = null
       }
       setIsQueryingLocation(false)
+      setLocationButtonColor('gray')
       firstLocationReceived.current = false
     } else {
       // Start querying location
-      if ('geolocation' in navigator) {
+      if ('geolocation' in navigator || geolocation) {
         setIsQueryingLocation(true)
+        setLocationButtonColor('blue')
         firstLocationReceived.current = false
 
         // Get current position once
-        navigator.geolocation.getCurrentPosition(
+        geolocation.getCurrentPosition(
           (position) => {
             const geohash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
             setGeohashInput(geohash)
+
+            // Blink yellow then set to blue
+            setLocationButtonColor('yellow')
+            setTimeout(() => setLocationButtonColor('blue'), 200)
 
             if (mapRef.current && !firstLocationReceived.current) {
               // For GPS location, focus on the geohash bounds
@@ -343,27 +354,84 @@ export function MapComponent() {
             }
           },
           (error) => {
-            console.error('Error getting location:', error)
+            console.error('[Location Error]', {
+              code: error.code,
+              message: error.message,
+              type: error.code === 1 ? 'PERMISSION_DENIED' :
+                    error.code === 2 ? 'POSITION_UNAVAILABLE' :
+                    error.code === 3 ? 'TIMEOUT' : 'UNKNOWN'
+            })
+
             setIsQueryingLocation(false)
+            setLocationButtonColor('red')  // Red on error
+
+            // Show user-friendly error
+            let errorMsg = 'Location error: '
+            if (error.code === 1) {
+              errorMsg += 'Permission denied. Please enable location access.'
+            } else if (error.code === 2) {
+              errorMsg += 'Position unavailable. Please ensure location services are enabled.'
+            } else if (error.code === 3) {
+              errorMsg += 'Request timed out. Please try again.'
+            } else {
+              errorMsg += error.message
+            }
+            toast({
+              title: 'Location Error',
+              description: errorMsg,
+              status: 'error',
+              duration: 5000,
+              isClosable: true,
+            })
           },
-          { enableHighAccuracy: true }
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          }
         )
 
         // Watch for position changes
-        watchIdRef.current = navigator.geolocation.watchPosition(
+        const watchId = geolocation.watchPosition(
           (position) => {
             const geohash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
             setGeohashInput(geohash)
 
+            // Blink yellow then back to blue for updates
+            setLocationButtonColor('yellow')
+            setTimeout(() => setLocationButtonColor('blue'), 200)
+
             // Don't focus map on subsequent updates
           },
           (error) => {
-            console.error('Error watching location:', error)
+            console.error('[Location Watch Error]', {
+              code: error.code,
+              message: error.message,
+              type: error.code === 1 ? 'PERMISSION_DENIED' :
+                    error.code === 2 ? 'POSITION_UNAVAILABLE' :
+                    error.code === 3 ? 'TIMEOUT' : 'UNKNOWN'
+            })
+            setLocationButtonColor('red')  // Red on watch error
           },
-          { enableHighAccuracy: true }
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          }
         )
+
+        watchIdRef.current = watchId
+        console.log('[MapComponent] Started watching with watchId:', watchId)
       } else {
-        console.error('Geolocation is not supported by this browser')
+        console.error('[Location Error] Geolocation not supported by browser')
+        setLocationButtonColor('red')
+        toast({
+          title: 'Not Supported',
+          description: 'Geolocation is not supported by your browser',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        })
       }
     }
   }
@@ -372,7 +440,8 @@ export function MapComponent() {
   useEffect(() => {
     return () => {
       if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current)
+        const geolocation = getGeolocationImplementation()
+        geolocation.clearWatch(watchIdRef.current)
       }
     }
   }, [])
@@ -498,7 +567,7 @@ export function MapComponent() {
               icon={<span>📍</span>}
               size="sm"
               onClick={toggleLocationQuery}
-              colorScheme={isQueryingLocation ? 'blue' : 'gray'}
+              colorScheme={locationButtonColor}
               variant={isQueryingLocation ? 'solid' : 'outline'}
             />
           </Tooltip>

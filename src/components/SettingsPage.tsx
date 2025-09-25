@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Box, Text, Input, VStack, FormLabel, Button, HStack, useToast, Divider, Textarea } from '@chakra-ui/react'
+import { Box, Text, Input, VStack, FormLabel, Button, HStack, useToast, Divider, Textarea, Switch } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 
 const DEFAULT_RELAY = 'https://precision.bilberry-tetra.ts.net/relay'
@@ -15,6 +15,7 @@ export function SettingsPage() {
   const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY)
   const [isConnecting, setIsConnecting] = useState(false)
   const [profileRelays, setProfileRelays] = useState<string[]>(DEFAULT_PROFILE_RELAYS)
+  const [simulateLocation, setSimulateLocation] = useState(false)
 
   useEffect(() => {
     // Load saved relay URL from localStorage
@@ -34,6 +35,12 @@ export function SettingsPage() {
       } catch (e) {
         console.error('Failed to parse profile relays:', e)
       }
+    }
+
+    // Load simulate location setting
+    const savedSimulate = localStorage.getItem('spotstr_simulateLocation')
+    if (savedSimulate === 'true') {
+      setSimulateLocation(true)
     }
   }, [])
   
@@ -121,6 +128,17 @@ export function SettingsPage() {
     })
   }
 
+  const handleSimulateToggle = (checked: boolean) => {
+    setSimulateLocation(checked)
+    localStorage.setItem('spotstr_simulateLocation', String(checked))
+    toast({
+      title: checked ? 'Simulation enabled' : 'Simulation disabled',
+      description: checked ? 'Location will be simulated' : 'Using real device location',
+      status: 'info',
+      duration: 2000,
+    })
+  }
+
   return (
     <Box>
       <Text fontSize="lg" fontWeight="bold" mb={4} color="gray.800">Settings</Text>
@@ -175,6 +193,26 @@ export function SettingsPage() {
             </HStack>
           </Box>
         )}
+
+        <Divider my={6} />
+
+        {/* Debug Settings */}
+        <Box>
+          <FormLabel>Debug Settings</FormLabel>
+          <HStack justify="space-between" p={3} bg="yellow.50" borderRadius="md">
+            <VStack align="start" spacing={0}>
+              <Text fontSize="sm" fontWeight="medium">Simulate Location</Text>
+              <Text fontSize="xs" color="gray.600">
+                Circular movement around Madeira (5km radius, 10m/s)
+              </Text>
+            </VStack>
+            <Switch
+              isChecked={simulateLocation}
+              onChange={(e) => handleSimulateToggle(e.target.checked)}
+              colorScheme="yellow"
+            />
+          </HStack>
+        </Box>
 
         <Divider my={6} />
 
