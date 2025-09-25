@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, IconButton, Tooltip, Input, HStack, useToast } from '@chakra-ui/react'
+import { Box, IconButton, Tooltip, Input, HStack, useToast, Badge } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 import { generateGeohash, decodeGeohash } from '../utils/crypto'
@@ -146,6 +146,7 @@ export function MapComponent() {
   const watchIdRef = useRef<number | null>(null)
   const [geohashInput, setGeohashInput] = useState('')
   const [showShareModal, setShowShareModal] = useState(false)
+  const [shareStatus, setShareStatus] = useState<{ type: 'sending' | 'sent' | 'error' | 'waiting', count?: number, message?: string } | null>(null)
   const [locationButtonColor, setLocationButtonColor] = useState<'gray' | 'blue' | 'red' | 'yellow'>('gray')
   const userLocationMarkerRef = useRef<L.Rectangle | null>(null)
   const userLocationCenterRef = useRef<L.Marker | null>(null)
@@ -521,6 +522,49 @@ export function MapComponent() {
     setShowShareModal(true)
   }
 
+  const handleStatusChange = (status: { type: 'sending' | 'sent' | 'error' | 'waiting', count?: number, message?: string }) => {
+    setShareStatus(status)
+
+    // Flash yellow on sent
+    if (status.type === 'sent') {
+      setTimeout(() => {
+        setShareStatus(prev => prev?.type === 'sent' ? status : prev)
+      }, 200)
+    }
+  }
+
+  const getStatusBadge = () => {
+    if (!shareStatus) return null
+
+    let colorScheme = 'green'
+    let text = ''
+
+    switch (shareStatus.type) {
+      case 'waiting':
+        colorScheme = 'blue'
+        text = 'Signing...'
+        break
+      case 'sending':
+        colorScheme = 'yellow'
+        text = 'Sending...'
+        break
+      case 'sent':
+        colorScheme = 'green'
+        text = shareStatus.count ? `Sent: ${shareStatus.count}` : 'Sent'
+        break
+      case 'error':
+        colorScheme = 'red'
+        text = shareStatus.message || 'Error'
+        break
+    }
+
+    return (
+      <Badge colorScheme={colorScheme} fontSize="xs" px={2}>
+        {text}
+      </Badge>
+    )
+  }
+
   return (
     <Box position="relative" width="100%" height="100%" overflow="hidden">
       <Box
@@ -572,14 +616,19 @@ export function MapComponent() {
               variant={isQueryingLocation ? 'solid' : 'outline'}
             />
           </Tooltip>
+          {getStatusBadge()}
         </HStack>
       </Box>
 
       {/* Share Location Popup */}
       <ShareLocationPopup
         isOpen={showShareModal}
-        onClose={() => setShowShareModal(false)}
+        onClose={() => {
+          setShowShareModal(false)
+          setShareStatus(null)
+        }}
         initialGeohash={geohashInput}
+        onStatusChange={handleStatusChange}
       />
     </Box>
   )

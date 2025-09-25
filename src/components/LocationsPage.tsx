@@ -26,7 +26,7 @@ import { useNostr } from '../hooks/useNostr'
 import { useAccounts } from 'applesauce-react/hooks'
 import { useGroups } from '../hooks/useGroups'
 import { mapService } from '../services/mapService'
-import { ShareLocationPopup } from './ShareLocationPopup'
+import { AddLocationModal } from './AddLocationModal'
 
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
@@ -80,7 +80,7 @@ export function LocationsPage() {
           </HStack>
         </HStack>
         <HStack spacing={2}>
-          <Button onClick={onOpen} size="sm" colorScheme="blue">Share Location +</Button>
+          <Button onClick={onOpen} size="sm" colorScheme="blue">Add Location +</Button>
           <IconButton
             aria-label="Clear all locations"
             icon={<span>🗑️</span>}
@@ -148,8 +148,8 @@ export function LocationsPage() {
         </Tbody>
       </Table>
 
-      {/* Share Location Popup */}
-      <ShareLocationPopup
+      {/* Add Location Modal */}
+      <AddLocationModal
         isOpen={isOpen}
         onClose={onClose}
       />
