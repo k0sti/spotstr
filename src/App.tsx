@@ -8,6 +8,7 @@ import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
 import { AccountsProvider } from 'applesauce-react'
 import accounts from './services/accounts'
+import theme from './theme'
 import {
   Box,
   Flex,
@@ -225,7 +226,7 @@ function AppContent() {
 
 export function App() {
   return (
-    <ChakraProvider>
+    <ChakraProvider theme={theme}>
       <AccountsProvider manager={accounts}>
         <AppContent />
       </AccountsProvider>
