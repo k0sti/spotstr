@@ -35,7 +35,7 @@ import {
 import { useAccountManager, useAccounts } from 'applesauce-react/hooks'
 import { ExtensionAccount, SimpleAccount, NostrConnectAccount } from 'applesauce-accounts/accounts'
 import { ExtensionSigner, SimpleSigner, NostrConnectSigner } from 'applesauce-signers'
-import { npubEncode } from 'nostr-tools/nip19'
+import { npubEncode, nsecEncode } from 'nostr-tools/nip19'
 import { generateNostrKeyPair } from '../utils/crypto'
 import { fetchProfile } from '../utils/profileRelays'
 import { useAccountCustomNames } from '../hooks/useAccountCustomNames'
@@ -72,6 +72,8 @@ function IdentityRow({ account, onDelete, onCopy, customName, onUpdateCustomName
   customName?: string
   onUpdateCustomName: (pubkey: string, name: string) => void
 }) {
+  // Check if account has access to private key (only simple accounts have it)
+  const hasPrivateKey = account.metadata?._secretKey
   const npubFull = useMemo(() => {
     try {
       return npubEncode(account.pubkey)
@@ -135,6 +137,25 @@ function IdentityRow({ account, onDelete, onCopy, customName, onUpdateCustomName
                 onClick={() => onCopy(npubFull, 'Public key')}
               />
             </Tooltip>
+            {hasPrivateKey && (
+              <Tooltip label="Copy nsec (sensitive!)">
+                <IconButton
+                  size="xs"
+                  aria-label="Copy nsec"
+                  icon={<span>🔐</span>}
+                  variant="ghost"
+                  colorScheme="red"
+                  onClick={() => {
+                    try {
+                      const nsec = nsecEncode(account.metadata._secretKey)
+                      onCopy(nsec, 'Private key (keep this secret!)')
+                    } catch (error) {
+                      console.error('Failed to encode nsec:', error)
+                    }
+                  }}
+                />
+              </Tooltip>
+            )}
           </HStack>
           <Text fontSize="xs" fontFamily="mono" color="gray.700">
             {npubShort}
@@ -427,7 +448,8 @@ export function IdentitiesPage() {
       const pubkey = await signer.getPublicKey()
 
       const account = new SimpleAccount(pubkey, signer)
-      account.metadata = {}
+      // Store secret key in account metadata for private key copy functionality
+      account.metadata = { _secretKey: secretKey }
 
       manager.addAccount(account)
 
