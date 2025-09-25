@@ -153,7 +153,6 @@ export function IdentitiesPage() {
   const accountsList = useAccounts()
   const toast = useToast()
   const [nameInput, setNameInput] = useState('')
-  const [keyInput, setKeyInput] = useState('')
   const [bunkerUri, setBunkerUri] = useState('')
   const [isConnectingBunker, setIsConnectingBunker] = useState(false)
   const [amberSigner, setAmberSigner] = useState<NostrConnectSigner | null>(null)
@@ -408,21 +407,21 @@ export function IdentitiesPage() {
     }
   }
 
-  // Generate new keys
-  const handleGenerateKeys = async () => {
+  // Generate ephemeral keys (temporary)
+  const handleGenerateEphemeralKeys = async () => {
     try {
       const { secretKey } = generateNostrKeyPair()
       const signer = new SimpleSigner(secretKey)
       const pubkey = await signer.getPublicKey()
 
       const account = new SimpleAccount(pubkey, signer)
-      account.metadata = { name: nameInput || 'Generated Account' }
+      account.metadata = { name: nameInput || 'Ephemeral Account' }
 
       manager.addAccount(account)
 
       toast({
-        title: 'Account created',
-        description: 'New account generated successfully',
+        title: 'Ephemeral account created',
+        description: 'Temporary account created (will be lost on logout)',
         status: 'success',
         duration: 3000,
       })
@@ -432,62 +431,13 @@ export function IdentitiesPage() {
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to generate account',
+        description: 'Failed to generate ephemeral account',
         status: 'error',
         duration: 3000,
       })
     }
   }
 
-  // Import from nsec
-  const handleImportKey = async () => {
-    try {
-      const trimmedKey = keyInput.trim()
-
-      if (!trimmedKey.startsWith('nsec1')) {
-        toast({
-          title: 'Invalid key',
-          description: 'Please enter a valid nsec key',
-          status: 'error',
-          duration: 3000,
-        })
-        return
-      }
-
-      const { decode } = await import('nostr-tools/nip19')
-      const decoded = decode(trimmedKey)
-
-      if (decoded.type !== 'nsec') {
-        throw new Error('Invalid nsec key')
-      }
-
-      const signer = new SimpleSigner(decoded.data as Uint8Array)
-      const pubkey = await signer.getPublicKey()
-
-      const account = new SimpleAccount(pubkey, signer)
-      account.metadata = { name: nameInput || 'Imported Account' }
-
-      manager.addAccount(account)
-
-      toast({
-        title: 'Account imported',
-        description: 'Account imported from nsec successfully',
-        status: 'success',
-        duration: 3000,
-      })
-
-      setKeyInput('')
-      setNameInput('')
-      onClose()
-    } catch (error) {
-      toast({
-        title: 'Import failed',
-        description: error instanceof Error ? error.message : 'Failed to import key',
-        status: 'error',
-        duration: 3000,
-      })
-    }
-  }
 
   // Delete account
   const handleDeleteAccount = (account: any) => {
@@ -590,40 +540,22 @@ export function IdentitiesPage() {
 
               <Divider />
 
-              {/* Generate New Keys */}
+              {/* Generate Ephemeral Keys */}
               <VStack spacing={2}>
+                <Text fontSize="sm" fontWeight="bold" color="gray.700">
+                  Ephemeral Keys (Temporary)
+                </Text>
                 <Input
                   placeholder="Account name (optional)"
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
                 />
-                <Button onClick={handleGenerateKeys} colorScheme="green" w="full">
-                  Generate New Keys
+                <Button onClick={handleGenerateEphemeralKeys} colorScheme="gray" variant="outline" w="full">
+                  Generate Ephemeral Keys
                 </Button>
-              </VStack>
-
-              <Text fontSize="sm" color="gray.600" textAlign="center">
-                — OR —
-              </Text>
-
-              {/* Import from nsec */}
-              <VStack spacing={2}>
-                <Input
-                  placeholder="Paste nsec key"
-                  value={keyInput}
-                  onChange={(e) => setKeyInput(e.target.value)}
-                  fontFamily="mono"
-                  fontSize="sm"
-                />
-                <Button
-                  onClick={handleImportKey}
-                  disabled={!keyInput}
-                  size="sm"
-                  colorScheme="blue"
-                  w="full"
-                >
-                  Import Key
-                </Button>
+                <Text fontSize="xs" color="gray.500" textAlign="center">
+                  For temporary use only. Will be lost when you clear browser data.
+                </Text>
               </VStack>
 
               <Text fontSize="sm" color="gray.600" textAlign="center">

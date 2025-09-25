@@ -9,6 +9,7 @@ import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
 import { AccountsProvider } from 'applesauce-react'
 import accounts from './services/accounts'
+import { groupsManager } from './services/groups'
 import theme from './theme'
 import {
   Box,
@@ -19,7 +20,8 @@ import {
   Tooltip,
   Circle,
   Link,
-  Image
+  Image,
+  useToast
 } from '@chakra-ui/react'
 
 type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' | null
@@ -27,6 +29,7 @@ type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageType>(null)
   const { connectedRelays } = useNostr()
+  const toast = useToast()
   const isConnected = connectedRelays.length > 0
 
   const handlePageClick = (page: PageType) => {
@@ -38,44 +41,34 @@ function AppContent() {
     }
   }
 
+  // Check for group import in URL query parameters
   useEffect(() => {
-    // Check for nsec import in URL query parameters
     const urlParams = new URLSearchParams(window.location.search)
-    const hexNsec = urlParams.get('i')
-    const name = urlParams.get('name') || 'Imported Account'
+    const hexNsec = urlParams.get('g')
 
     if (hexNsec) {
-      const importAccount = async () => {
-        try {
-          // Convert hex to Uint8Array
-          const secretKey = new Uint8Array(hexNsec.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)))
-
-          // Import account system dependencies
-          const { SimpleSigner } = await import('applesauce-signers')
-          const { SimpleAccount } = await import('applesauce-accounts/accounts')
-
-          // Create signer and account
-          const signer = new SimpleSigner(secretKey)
-          const pubkey = await signer.getPublicKey()
-          const account = new SimpleAccount(pubkey, signer)
-          account.metadata = { name }
-
-          // Add account to the manager
-          accounts.addAccount(account)
-
-          // Redirect to base URL without query parameters
-          window.history.replaceState({}, '', '/')
-
-          // Show success toast
-          console.log(`Successfully imported account: ${name}`)
-        } catch (error) {
-          console.error('Failed to import account from URL:', error)
-        }
+      const group = groupsManager.importFromUrl(urlParams)
+      if (group) {
+        toast({
+          title: 'Group imported',
+          description: `Successfully imported group: ${group.name}`,
+          status: 'success',
+          duration: 3000,
+        })
+      } else {
+        toast({
+          title: 'Import failed',
+          description: 'This group may already exist or the URL is invalid',
+          status: 'error',
+          duration: 5000,
+        })
       }
 
-      importAccount()
+      // Clear URL parameters
+      window.history.replaceState({}, '', '/')
     }
-  }, [])
+  }, [toast])
+
 
   const renderCurrentPage = () => {
     switch (currentPage) {
@@ -154,15 +147,6 @@ function AppContent() {
                   variant={currentPage === 'identities' ? 'solid' : 'outline'}
                 />
               </Tooltip>
-              <Tooltip label="Contacts" placement="bottom">
-                <IconButton
-                  aria-label="Contacts"
-                  icon={<span>🔗</span>}
-                  size="sm"
-                  onClick={() => handlePageClick('contacts')}
-                  variant={currentPage === 'contacts' ? 'solid' : 'outline'}
-                />
-              </Tooltip>
               <Tooltip label="Groups" placement="bottom">
                 <IconButton
                   aria-label="Groups"
@@ -170,6 +154,15 @@ function AppContent() {
                   size="sm"
                   onClick={() => handlePageClick('groups')}
                   variant={currentPage === 'groups' ? 'solid' : 'outline'}
+                />
+              </Tooltip>
+              <Tooltip label="Contacts" placement="bottom">
+                <IconButton
+                  aria-label="Contacts"
+                  icon={<span>🔗</span>}
+                  size="sm"
+                  onClick={() => handlePageClick('contacts')}
+                  variant={currentPage === 'contacts' ? 'solid' : 'outline'}
                 />
               </Tooltip>
               <Tooltip label="Locations" placement="bottom">
