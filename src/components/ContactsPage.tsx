@@ -85,8 +85,10 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
   const [profileLoadProgress, setProfileLoadProgress] = useState({ loaded: 0, total: 0 })
   const [cachedFollows, setCachedFollows] = useState<Map<string, string[]>>(new Map())
   const [lastFetchTime, setLastFetchTime] = useState<number>(0)
+  const [directNpubInput, setDirectNpubInput] = useState('')
+  const [isValidNpub, setIsValidNpub] = useState(false)
   const accounts = useAccounts()
-  const { contacts, addMultipleContacts } = useContacts()
+  const { contacts, addMultipleContacts, addContact } = useContacts()
   const toast = useToast()
 
   // Cache duration: 5 minutes
@@ -94,6 +96,34 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
 
   // Get existing contact pubkeys for filtering
   const existingContactPubkeys = new Set(contacts.map(c => c.pubkey))
+
+  // Validate npub input
+  useEffect(() => {
+    const validateNpub = async () => {
+      const trimmed = directNpubInput.trim()
+      if (!trimmed) {
+        setIsValidNpub(false)
+        return
+      }
+
+      // Check if it's a valid npub
+      if (trimmed.startsWith('npub1') && trimmed.length === 63) {
+        try {
+          const { nip19 } = await import('nostr-tools')
+          const decoded = nip19.decode(trimmed)
+          if (decoded.type === 'npub') {
+            setIsValidNpub(true)
+            return
+          }
+        } catch (e) {
+          // Invalid npub
+        }
+      }
+      setIsValidNpub(false)
+    }
+
+    validateNpub()
+  }, [directNpubInput])
 
   // Fetch follow list when modal opens
   useEffect(() => {
@@ -249,6 +279,81 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
     }
   }
 
+  const handleAddDirectNpub = async () => {
+    if (!isValidNpub) {
+      toast({
+        title: 'Invalid npub',
+        description: 'Please enter a valid npub',
+        status: 'error',
+        duration: 3000,
+      })
+      return
+    }
+
+    const trimmedNpub = directNpubInput.trim()
+
+    try {
+      const { nip19 } = await import('nostr-tools')
+      const decoded = nip19.decode(trimmedNpub)
+
+      if (decoded.type === 'npub') {
+        // Check if contact already exists
+        const pubkey = decoded.data as string
+        if (existingContactPubkeys.has(pubkey)) {
+          toast({
+            title: 'Contact already exists',
+            description: 'This contact is already in your list',
+            status: 'warning',
+            duration: 3000,
+          })
+          return
+        }
+
+        // Add the contact
+        const result = await addContact(trimmedNpub)
+
+        if (result) {
+          toast({
+            title: 'Contact added',
+            description: 'Successfully added contact',
+            status: 'success',
+            duration: 3000,
+          })
+
+          // Try to fetch profile
+          setLoading(true)
+          const profile = await fetchProfile(pubkey)
+          setLoading(false)
+
+          if (profile) {
+            toast({
+              title: 'Profile loaded',
+              description: `Added ${profile.name || profile.display_name || 'contact'}`,
+              status: 'info',
+              duration: 2000,
+            })
+          }
+
+          handleClose()
+        } else {
+          toast({
+            title: 'Failed to add contact',
+            description: 'Could not add the contact',
+            status: 'error',
+            duration: 3000,
+          })
+        }
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to process npub',
+        status: 'error',
+        duration: 3000,
+      })
+    }
+  }
+
   const handleImport = async () => {
     if (selectedContacts.size === 0) {
       toast({
@@ -287,6 +392,8 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
     setSearchQuery('')
     setFollowList([])
     setSelectedContacts(new Set())
+    setDirectNpubInput('')
+    setIsValidNpub(false)
     onClose()
   }
 
@@ -345,17 +452,57 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
     <Modal isOpen={isOpen} onClose={handleClose} size="xl">
       <ModalOverlay />
       <ModalContent maxHeight="80vh">
-        <ModalHeader>Add Contacts from Follows</ModalHeader>
+        <ModalHeader>Add Contacts</ModalHeader>
         <ModalCloseButton />
         <ModalBody>
           <VStack spacing={4} align="stretch">
+            {/* Direct npub input */}
+            <Box>
+              <Text fontSize="sm" fontWeight="bold" mb={2}>
+                Add by npub
+              </Text>
+              <HStack>
+                <Input
+                  placeholder="Paste npub here (e.g., npub1...)"
+                  value={directNpubInput}
+                  onChange={(e) => setDirectNpubInput(e.target.value)}
+                  isDisabled={loading}
+                  borderColor={directNpubInput && !isValidNpub ? 'red.300' : undefined}
+                />
+                <Button
+                  colorScheme="green"
+                  size="sm"
+                  onClick={handleAddDirectNpub}
+                  isDisabled={!isValidNpub || loading}
+                >
+                  Add
+                </Button>
+              </HStack>
+              {directNpubInput && !isValidNpub && (
+                <Text fontSize="xs" color="red.500" mt={1}>
+                  Invalid npub format
+                </Text>
+              )}
+            </Box>
+
+            <Box>
+              <Text fontSize="xs" color="gray.500" textAlign="center">
+                — or —
+              </Text>
+            </Box>
+
             {/* Search input */}
-            <Input
-              placeholder="Search by name or npub..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              isDisabled={loading}
-            />
+            <Box>
+              <Text fontSize="sm" fontWeight="bold" mb={2}>
+                Import from follows
+              </Text>
+              <Input
+                placeholder="Search by name or npub..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                isDisabled={loading}
+              />
+            </Box>
 
             {/* Follow list */}
             <Box>
