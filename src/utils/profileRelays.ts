@@ -44,12 +44,29 @@ export async function fetchProfile(pubkey: string, useCache = true): Promise<any
 
     // Try each relay until we get a profile
     for (const relayUrl of relays) {
+      let relay: any = null
       try {
-        const relay = new Relay(relayUrl)
+        relay = new Relay(relayUrl)
 
         // Request profile events (kind 0)
         const events = await new Promise<any[]>((resolve) => {
           const collectedEvents: any[] = []
+          let isResolved = false
+
+          const cleanup = () => {
+            if (!isResolved) {
+              isResolved = true
+              try {
+                if (relay && relay.close) {
+                  relay.close()
+                }
+              } catch (e) {
+                // Ignore close errors
+              }
+              resolve(collectedEvents)
+            }
+          }
+
           const sub = relay.request({
             kinds: [0],
             authors: [pubkey],
@@ -63,21 +80,20 @@ export async function fetchProfile(pubkey: string, useCache = true): Promise<any
               }
             },
             complete: () => {
-              relay.close()
-              resolve(collectedEvents)
+              cleanup()
             },
             error: (error: any) => {
               console.error(`Failed to fetch from ${relayUrl}:`, error)
-              relay.close()
-              resolve(collectedEvents)
+              cleanup()
             }
           })
 
           // Timeout after 3 seconds
           setTimeout(() => {
-            sub.unsubscribe()
-            relay.close()
-            resolve(collectedEvents)
+            if (sub) {
+              sub.unsubscribe()
+            }
+            cleanup()
           }, 3000)
         })
 

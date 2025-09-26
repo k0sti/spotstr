@@ -497,6 +497,7 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
 
 export function ContactsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
+  const { isOpen: isHelpOpen, onOpen: onHelpOpen, onClose: onHelpClose } = useDisclosure()
   const { contacts, deleteContact, updateCustomName } = useContacts()
   const toast = useToast()
 
@@ -517,7 +518,26 @@ export function ContactsPage() {
           <Text fontSize="lg" fontWeight="bold" color="gray.800">Contacts</Text>
           <Text fontSize="sm" color="gray.600">({contacts.length})</Text>
         </HStack>
-        <Button onClick={onOpen} size="sm" colorScheme="blue">Add Contact +</Button>
+        <HStack spacing={2}>
+          <Tooltip label="Add Contact" placement="bottom">
+            <IconButton
+              aria-label="Add Contact"
+              icon={<span style={{ fontSize: '2rem' }}>+</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onOpen}
+            />
+          </Tooltip>
+          <Tooltip label="About Contacts" placement="bottom">
+            <IconButton
+              aria-label="Help"
+              icon={<span style={{ fontSize: '1.5rem' }}>?</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onHelpOpen}
+            />
+          </Tooltip>
+        </HStack>
       </HStack>
 
       {contacts.length === 0 ? (
@@ -551,6 +571,39 @@ export function ContactsPage() {
 
       {/* Add Contact Modal */}
       <AddContactModal isOpen={isOpen} onClose={onClose} />
+
+      {/* Help Modal */}
+      <Modal isOpen={isHelpOpen} onClose={onHelpClose} size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>About Contacts</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Text>
+                Contacts are Nostr profiles that you can share locations with. They are stored locally
+                in your browser and can be imported from your Nostr follow list.
+              </Text>
+
+              <VStack align="stretch" spacing={2}>
+                <Text fontSize="sm" fontWeight="semibold">Key Features:</Text>
+                <Text fontSize="sm">• Import contacts from your Nostr follow list</Text>
+                <Text fontSize="sm">• Add custom names to help identify contacts</Text>
+                <Text fontSize="sm">• View contact public keys (npub)</Text>
+                <Text fontSize="sm">• Share locations privately with specific contacts</Text>
+              </VStack>
+
+              <Text fontSize="sm" color="gray.600">
+                When you share a location with a contact, it's encrypted using their public key.
+                Only they can decrypt and view the location using their private key.
+              </Text>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onHelpClose}>Close</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   )
 }

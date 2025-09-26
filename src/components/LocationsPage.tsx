@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState, useMemo } from 'react'
 import {
   Box,
   Button,
@@ -8,6 +8,7 @@ import {
   Tr,
   Th,
   Td,
+  Collapse,
   HStack,
   Text,
   useDisclosure,
@@ -20,22 +21,67 @@ import {
   AlertDialogContent,
   AlertDialogOverlay,
   AlertDialogCloseButton,
-  Badge
+  Badge,
+  Stack,
+  Avatar,
+  Tooltip,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalCloseButton,
+  ModalFooter,
+  VStack
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 import { useAccounts } from 'applesauce-react/hooks'
 import { useGroups } from '../hooks/useGroups'
+import { useProfiles } from '../hooks/useProfiles'
 import { mapService } from '../services/mapService'
 import { AddLocationModal } from './AddLocationModal'
+import * as nip19 from 'nostr-tools/nip19'
 
 export function LocationsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
+  const { isOpen: isHelpOpen, onOpen: onHelpOpen, onClose: onHelpClose } = useDisclosure()
   const { locationEvents, clearAllLocations, decryptLocationEvents } = useNostr()
   const accounts = useAccounts()
   const { groups } = useGroups()
   const toast = useToast()
   const cancelRef = useRef(null)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+
+  // Collect all unique npubs from location events
+  const allNpubs = useMemo(() => {
+    const npubs = new Set<string>()
+    locationEvents.forEach(event => {
+      if (event.senderNpub) npubs.add(event.senderNpub)
+      if (event.receiverNpub) npubs.add(event.receiverNpub)
+    })
+    return Array.from(npubs)
+  }, [locationEvents])
+
+  // Fetch profiles for all npubs
+  const { profiles } = useProfiles(allNpubs)
+
+  // Helper to convert npub to hex for profile lookup
+  const npubToHex = (npub: string): string => {
+    if (!npub || !npub.startsWith('npub')) return npub
+    try {
+      return nip19.decode(npub).data as string
+    } catch {
+      return npub
+    }
+  }
+
+  // Helper to get profile for an npub
+  const getProfile = (npub: string) => {
+    if (!npub) return undefined
+    const pubkey = npubToHex(npub)
+    return profiles.get(pubkey)
+  }
 
   // Decrypt location events when accounts or groups are available or when new events arrive
   useEffect(() => {
@@ -56,6 +102,41 @@ export function LocationsPage() {
     return new Date(timestamp * 1000).toLocaleString()
   }
 
+  const formatExpiry = (expiry: number | undefined) => {
+    if (!expiry) return '—'
+
+    const now = Math.floor(Date.now() / 1000)
+    const remaining = expiry - now
+
+    if (remaining <= 0) return 'Expired'
+
+    // Convert to friendly units
+    if (remaining < 60) {
+      return `${remaining} s`
+    } else if (remaining < 3600) {
+      const minutes = Math.floor(remaining / 60)
+      return `${minutes} min`
+    } else if (remaining < 86400) {
+      const hours = Math.floor(remaining / 3600)
+      return `${hours} h`
+    } else {
+      const days = Math.floor(remaining / 86400)
+      return `${days} d`
+    }
+  }
+
+  const toggleRow = (eventId: string) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(eventId)) {
+        newSet.delete(eventId)
+      } else {
+        newSet.add(eventId)
+      }
+      return newSet
+    })
+  }
+
   // Count public and private events
   const publicCount = locationEvents.filter(e => e.eventKind === 30472).length
   const privateCount = locationEvents.filter(e => e.eventKind === 30473).length
@@ -66,84 +147,157 @@ export function LocationsPage() {
       <HStack justify="space-between" mb={4}>
         <HStack spacing={3}>
           <Text fontSize="lg" fontWeight="bold" color="gray.800">Locations</Text>
-          <HStack spacing={2} fontSize="sm">
-            <Text color="gray.600">Total: {locationEvents.length}</Text>
-            {publicCount > 0 && (
-              <Badge colorScheme="blue" variant="subtle">Public: {publicCount}</Badge>
-            )}
-            {privateCount > 0 && (
-              <Badge colorScheme="red" variant="subtle">Private: {privateCount}</Badge>
-            )}
-            {encryptedCount > 0 && (
-              <Badge colorScheme="orange" variant="subtle">Encrypted: {encryptedCount}</Badge>
-            )}
-          </HStack>
+          <Text fontSize="sm" color="gray.600">({locationEvents.length})</Text>
+          {publicCount > 0 && (
+            <Badge colorScheme="blue" variant="subtle" fontSize="xs">Public: {publicCount}</Badge>
+          )}
+          {privateCount > 0 && (
+            <Badge colorScheme="red" variant="subtle" fontSize="xs">Private: {privateCount}</Badge>
+          )}
+          {encryptedCount > 0 && (
+            <Badge colorScheme="orange" variant="subtle" fontSize="xs">Encrypted: {encryptedCount}</Badge>
+          )}
         </HStack>
         <HStack spacing={2}>
-          <Button onClick={onOpen} size="sm" colorScheme="blue">Add Location +</Button>
-          <IconButton
-            aria-label="Clear all locations"
-            icon={<span>🗑️</span>}
-            size="sm"
-            colorScheme="red"
-            variant="outline"
-            onClick={onResetOpen}
-            isDisabled={locationEvents.length === 0}
-          />
+          <Tooltip label="Add Location" placement="bottom">
+            <IconButton
+              aria-label="Add Location"
+              icon={<span style={{ fontSize: '2rem' }}>+</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onOpen}
+            />
+          </Tooltip>
+          <Tooltip label="Clear All" placement="bottom">
+            <IconButton
+              aria-label="Clear all locations"
+              icon={<span>🗑️</span>}
+              size="sm"
+              colorScheme="red"
+              variant="outline"
+              onClick={onResetOpen}
+              isDisabled={locationEvents.length === 0}
+            />
+          </Tooltip>
+          <Tooltip label="About Locations" placement="bottom">
+            <IconButton
+              aria-label="Help"
+              icon={<span style={{ fontSize: '1.5rem' }}>?</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onHelpOpen}
+            />
+          </Tooltip>
         </HStack>
       </HStack>
 
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
+            <Th width="30px"></Th>
             <Th>Name</Th>
             <Th>Geohash</Th>
-            <Th>Event ID</Th>
-            <Th>Created At</Th>
-            <Th>Sender</Th>
-            <Th>Recipient</Th>
+            <Th>From → To</Th>
+            <Th>Expires</Th>
           </Tr>
         </Thead>
         <Tbody>
           {locationEvents.map((event) => (
-            <Tr 
-              key={event.id}
-              onClick={() => {
-                if (event.geohash !== 'encrypted') {
-                  mapService.focusLocation(event.id)
-                  toast({
-                    title: 'Map focused',
-                    description: `Focused on location: ${event.name || event.dTag || 'unnamed'}`,
-                    status: 'info',
-                    duration: 2000,
-                  })
-                }
-              }}
-              cursor={event.geohash !== 'encrypted' ? 'pointer' : 'default'}
-              _hover={event.geohash !== 'encrypted' ? { bg: 'gray.50' } : {}}
-            >
-              <Td fontSize="xs">{event.name || event.dTag || '(default)'}</Td>
-              <Td 
-                fontFamily="mono" 
-                fontSize="xs"
-                color={event.geohash !== 'encrypted' ? 'blue.600' : 'gray.500'}
-                textDecoration={event.geohash !== 'encrypted' ? 'underline' : 'none'}
+            <React.Fragment key={event.id}>
+              <Tr
+                cursor="pointer"
+                _hover={{ bg: 'gray.50' }}
+                onClick={() => toggleRow(event.id)}
               >
-                {event.geohash}
-              </Td>
-              <Td fontFamily="mono" fontSize="xs">{event.eventId.slice(0, 8)}...</Td>
-              <Td fontSize="xs">{formatTimestamp(event.created_at)}</Td>
-              <Td fontFamily="mono" fontSize="xs">{event.senderNpub.slice(0, 8)}...</Td>
-              <Td fontSize="xs">
-                {event.eventKind === 30472 ? (
-                  <Badge colorScheme="blue">Public</Badge>
-                ) : (
-                  <Text fontFamily="mono" display="inline">
-                    {event.receiverNpub ? event.receiverNpub.slice(0, 8) + '...' : '(broadcast)'}
+                <Td>
+                  <Text fontSize="xs" transform={expandedRows.has(event.id) ? 'rotate(90deg)' : 'none'} transition="transform 0.2s">
+                    ▶
                   </Text>
-                )}
-              </Td>
-            </Tr>
+                </Td>
+                <Td fontSize="xs">{event.name || event.dTag || '(default)'}</Td>
+                <Td
+                  fontFamily="mono"
+                  fontSize="xs"
+                  color={event.geohash !== 'encrypted' ? 'blue.600' : 'gray.500'}
+                  textDecoration={event.geohash !== 'encrypted' ? 'underline' : 'none'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (event.geohash !== 'encrypted') {
+                      mapService.focusLocation(event.id)
+                      toast({
+                        title: 'Map focused',
+                        description: `Focused on location: ${event.name || event.dTag || 'unnamed'}`,
+                        status: 'info',
+                        duration: 2000,
+                      })
+                    }
+                  }}
+                  cursor={event.geohash !== 'encrypted' ? 'pointer' : 'default'}
+                >
+                  {event.geohash}
+                </Td>
+                <Td>
+                  <HStack spacing={1}>
+                    {(() => {
+                      const senderProfile = getProfile(event.senderNpub)
+                      return (
+                        <Avatar
+                          size="xs"
+                          src={senderProfile?.picture}
+                          name={senderProfile?.name || senderProfile?.display_name || event.senderNpub.slice(0, 16) + '...'}
+                        />
+                      )
+                    })()}
+                    <Text fontSize="md" color="gray.500">→</Text>
+                    {event.eventKind === 30472 ? (
+                      <Badge colorScheme="blue" size="sm">Public</Badge>
+                    ) : event.receiverNpub ? (
+                      (() => {
+                        const receiverProfile = getProfile(event.receiverNpub)
+                        return (
+                          <Avatar
+                            size="xs"
+                            src={receiverProfile?.picture}
+                            name={receiverProfile?.name || receiverProfile?.display_name || event.receiverNpub.slice(0, 16) + '...'}
+                          />
+                        )
+                      })()
+                    ) : (
+                      <Badge colorScheme="orange" size="sm">Broadcast</Badge>
+                    )}
+                  </HStack>
+                </Td>
+                <Td fontSize="xs" color={formatExpiry(event.expiry) === 'Expired' ? 'red.500' : 'gray.700'}>
+                  {formatExpiry(event.expiry)}
+                </Td>
+              </Tr>
+              <Tr display={expandedRows.has(event.id) ? 'table-row' : 'none'}>
+                <Td colSpan={5} bg="gray.50" p={4}>
+                  <Collapse in={expandedRows.has(event.id)} animateOpacity>
+                    <Stack spacing={2} fontSize="sm">
+                      <HStack>
+                        <Text color="gray.600" fontWeight="semibold">Event ID:</Text>
+                        <Text fontFamily="mono">{event.eventId}</Text>
+                      </HStack>
+                      <HStack>
+                        <Text color="gray.600" fontWeight="semibold">Created:</Text>
+                        <Text>{formatTimestamp(event.created_at)}</Text>
+                      </HStack>
+                      <HStack>
+                        <Text color="gray.600" fontWeight="semibold">Full Sender:</Text>
+                        <Text fontFamily="mono" fontSize="xs">{event.senderNpub}</Text>
+                      </HStack>
+                      {event.receiverNpub && (
+                        <HStack>
+                          <Text color="gray.600" fontWeight="semibold">Full Recipient:</Text>
+                          <Text fontFamily="mono" fontSize="xs">{event.receiverNpub}</Text>
+                        </HStack>
+                      )}
+                    </Stack>
+                  </Collapse>
+                </Td>
+              </Tr>
+            </React.Fragment>
           ))}
         </Tbody>
       </Table>
@@ -200,6 +354,47 @@ export function LocationsPage() {
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
+
+      {/* Help Modal */}
+      <Modal isOpen={isHelpOpen} onClose={onHelpClose} size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>About Locations</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Text>
+                Locations are encrypted position events shared on the Nostr network. They use
+                NIP-30473 addressable events to share and update location data.
+              </Text>
+
+              <VStack align="stretch" spacing={2}>
+                <Text fontSize="sm" fontWeight="semibold">Event Types:</Text>
+                <HStack>
+                  <Badge colorScheme="blue">Public</Badge>
+                  <Text fontSize="sm">Visible to everyone on the network</Text>
+                </HStack>
+                <HStack>
+                  <Badge colorScheme="red">Private</Badge>
+                  <Text fontSize="sm">Encrypted for specific recipients only</Text>
+                </HStack>
+                <HStack>
+                  <Badge colorScheme="orange">Encrypted</Badge>
+                  <Text fontSize="sm">Awaiting decryption (missing identity key)</Text>
+                </HStack>
+              </VStack>
+
+              <Text fontSize="sm" color="gray.600">
+                Click on any location's geohash to focus it on the map. Expand rows to see
+                full event details including event IDs and timestamps.
+              </Text>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onHelpClose}>Close</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   )
 }

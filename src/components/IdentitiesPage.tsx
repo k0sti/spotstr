@@ -14,6 +14,7 @@ import {
   ModalHeader,
   ModalBody,
   ModalCloseButton,
+  ModalFooter,
   VStack,
   HStack,
   Input,
@@ -25,7 +26,8 @@ import {
   ButtonGroup,
   Link,
   Divider,
-  Spinner
+  Spinner,
+  Tooltip
 } from '@chakra-ui/react'
 import { useAccountManager, useAccounts } from 'applesauce-react/hooks'
 import { ExtensionAccount, SimpleAccount, NostrConnectAccount } from 'applesauce-accounts/accounts'
@@ -43,6 +45,7 @@ const IS_WEB_ANDROID = /android/i.test(navigator.userAgent)
 const getAccountTypeBadgeColor = (type: string) => {
   switch (type) {
     case 'simple': return 'green'
+    case 'nsec': return 'green'  // SimpleAccount uses 'nsec' as type
     case 'extension': return 'orange'
     case 'amber-clipboard': return 'yellow'
     case 'nostr-connect': return 'teal'
@@ -50,12 +53,17 @@ const getAccountTypeBadgeColor = (type: string) => {
   }
 }
 
-const getAccountTypeLabel = (type: string) => {
+const getAccountTypeLabel = (type: string, metadata?: any) => {
   switch (type) {
-    case 'simple': return 'Local'
+    case 'simple': return 'Temporary'
+    case 'nsec': return 'Temporary'  // SimpleAccount uses 'nsec' as type
     case 'extension': return 'Extension'
     case 'amber-clipboard': return 'Amber'
-    case 'nostr-connect': return 'Bunker'
+    case 'nostr-connect': {
+      // Check if this is an Amber connection based on metadata
+      if (metadata?._isAmber) return 'Amber'
+      return 'Bunker'
+    }
     default: return type
   }
 }
@@ -73,7 +81,7 @@ function IdentityRow({ account, onDelete, customName, onUpdateCustomName }: {
   // Create the badge element
   const badge = (
     <Badge colorScheme={getAccountTypeBadgeColor(account.type)} size="sm">
-      {getAccountTypeLabel(account.type)}
+      {getAccountTypeLabel(account.type, account.metadata)}
     </Badge>
   )
 
@@ -111,6 +119,7 @@ function IdentityRow({ account, onDelete, customName, onUpdateCustomName }: {
 
 export function IdentitiesPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
+  const { isOpen: isHelpOpen, onOpen: onHelpOpen, onClose: onHelpClose } = useDisclosure()
   const manager = useAccountManager()
   const accountsList = useAccounts()
   const { customNames, setCustomName } = useAccountCustomNames()
@@ -264,10 +273,13 @@ export function IdentitiesPage() {
             name: profile.name,
             picture: profile.picture,
             about: profile.about,
-            nip05: profile.nip05
+            nip05: profile.nip05,
+            _isAmber: true  // Mark this as an Amber connection
           }
         } else {
-          account.metadata = {}
+          account.metadata = {
+            _isAmber: true  // Mark this as an Amber connection
+          }
         }
 
         manager.addAccount(account)
@@ -373,8 +385,8 @@ export function IdentitiesPage() {
     }
   }
 
-  // Generate ephemeral keys (temporary)
-  const handleGenerateEphemeralKeys = async () => {
+  // Generate temporary keys
+  const handleGenerateTemporaryKeys = async () => {
     try {
       const { secretKey } = generateNostrKeyPair()
       const signer = new SimpleSigner(secretKey)
@@ -392,7 +404,7 @@ export function IdentitiesPage() {
       }
 
       toast({
-        title: 'Ephemeral account created',
+        title: 'Temporary account created',
         description: 'Temporary account created (will be lost on logout)',
         status: 'success',
         duration: 3000,
@@ -403,7 +415,7 @@ export function IdentitiesPage() {
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to generate ephemeral account',
+        description: 'Failed to generate temporary account',
         status: 'error',
         duration: 3000,
       })
@@ -427,8 +439,30 @@ export function IdentitiesPage() {
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <Text fontSize="lg" fontWeight="bold" color="gray.800">Identities</Text>
-        <Button onClick={onOpen} size="sm" colorScheme="blue">Add Identity +</Button>
+        <HStack spacing={2}>
+          <Text fontSize="lg" fontWeight="bold" color="gray.800">Identities</Text>
+          <Text fontSize="sm" color="gray.600">({accountsList.length})</Text>
+        </HStack>
+        <HStack spacing={2}>
+          <Tooltip label="Add Identity" placement="bottom">
+            <IconButton
+              aria-label="Add Identity"
+              icon={<span style={{ fontSize: '2rem' }}>+</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onOpen}
+            />
+          </Tooltip>
+          <Tooltip label="About Identities" placement="bottom">
+            <IconButton
+              aria-label="Help"
+              icon={<span style={{ fontSize: '1.5rem' }}>?</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onHelpOpen}
+            />
+          </Tooltip>
+        </HStack>
       </HStack>
 
       <Table size="sm" variant="simple">
@@ -495,21 +529,21 @@ export function IdentitiesPage() {
 
               <Divider />
 
-              {/* Generate Ephemeral Keys */}
+              {/* Generate Temporary Keys */}
               <VStack spacing={2}>
                 <Text fontSize="sm" fontWeight="bold" color="gray.700">
-                  Ephemeral Keys (Temporary)
+                  Temporary Keys
                 </Text>
                 <Input
                   placeholder="Account name (optional)"
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
                 />
-                <Button onClick={handleGenerateEphemeralKeys} colorScheme="gray" variant="outline" w="full">
-                  Generate Ephemeral Keys
+                <Button onClick={handleGenerateTemporaryKeys} colorScheme="gray" variant="outline" w="full">
+                  Generate Temporary Keys
                 </Button>
                 <Text fontSize="xs" color="gray.500" textAlign="center">
-                  For temporary use only. Will be lost when you clear browser data.
+                  Keys stored locally. Will be lost when you clear browser data.
                 </Text>
               </VStack>
 
@@ -603,6 +637,54 @@ export function IdentitiesPage() {
               </HStack>
             </VStack>
           </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Help Modal */}
+      <Modal isOpen={isHelpOpen} onClose={onHelpClose} size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>About Identities</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Text>
+                Identities are your Nostr accounts that you use to sign location sharing events.
+                Spotstr supports multiple identity types:
+              </Text>
+
+              <VStack align="stretch" spacing={2}>
+                <HStack>
+                  <Badge colorScheme="green">Temporary</Badge>
+                  <Text fontSize="sm">Keys stored locally in browser (deleted on clear)</Text>
+                </HStack>
+
+                <HStack>
+                  <Badge colorScheme="orange">Extension</Badge>
+                  <Text fontSize="sm">Browser extensions like Alby, nos2x, or Flamingo</Text>
+                </HStack>
+
+                <HStack>
+                  <Badge colorScheme="yellow">Amber</Badge>
+                  <Text fontSize="sm">Android app for secure key management (NIP-46)</Text>
+                </HStack>
+
+                <HStack>
+                  <Badge colorScheme="teal">Bunker</Badge>
+                  <Text fontSize="sm">Remote signing service like nsec.app (NIP-46)</Text>
+                </HStack>
+              </VStack>
+
+              <Text fontSize="sm" color="gray.600">
+                <strong>Tip:</strong> Temporary identities offer maximum privacy - keys stay local
+                and are deleted when you clear browser data. Both Amber and Bunker use the
+                Nostr Connect protocol (NIP-46) for secure remote signing.
+              </Text>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onHelpClose}>Close</Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
     </Box>

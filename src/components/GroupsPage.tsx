@@ -14,6 +14,7 @@ import {
   ModalHeader,
   ModalBody,
   ModalCloseButton,
+  ModalFooter,
   VStack,
   HStack,
   Input,
@@ -104,6 +105,7 @@ function GroupRow({ group, onDelete, onShare, onCopyShareUrl, customName, onUpda
 export function GroupsPage() {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { isOpen: isShareOpen, onOpen: onShareOpen, onClose: onShareClose } = useDisclosure()
+  const { isOpen: isHelpOpen, onOpen: onHelpOpen, onClose: onHelpClose } = useDisclosure()
   const {
     groups,
     generateGroup,
@@ -213,8 +215,30 @@ export function GroupsPage() {
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <Text fontSize="lg" fontWeight="bold" color="gray.800">Groups</Text>
-        <Button onClick={onOpen} size="sm" colorScheme="blue">Create Group +</Button>
+        <HStack spacing={2}>
+          <Text fontSize="lg" fontWeight="bold" color="gray.800">Groups</Text>
+          <Text fontSize="sm" color="gray.600">({groups.length})</Text>
+        </HStack>
+        <HStack spacing={2}>
+          <Tooltip label="Create Group" placement="bottom">
+            <IconButton
+              aria-label="Create Group"
+              icon={<span style={{ fontSize: '2rem' }}>+</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onOpen}
+            />
+          </Tooltip>
+          <Tooltip label="About Groups" placement="bottom">
+            <IconButton
+              aria-label="Help"
+              icon={<span style={{ fontSize: '1.5rem' }}>?</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onHelpOpen}
+            />
+          </Tooltip>
+        </HStack>
       </HStack>
 
       <Table size="sm" variant="simple">
@@ -372,6 +396,38 @@ export function GroupsPage() {
               </Box>
             </VStack>
           </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Help Modal */}
+      <Modal isOpen={isHelpOpen} onClose={onHelpClose} size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>About Groups</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Text>
+                Groups are Nostr identities managed by the app. They have their own keys (nsec/npub)
+                that can be used to share locations with multiple contacts.
+              </Text>
+
+              <VStack align="stretch" spacing={2}>
+                <Text fontSize="sm" fontWeight="semibold">Key Features:</Text>
+                <Text fontSize="sm">• Generate new keys for a fresh group identity</Text>
+                <Text fontSize="sm">• Import existing nsec keys to use an existing identity</Text>
+                <Text fontSize="sm">• Share groups via URL or QR code for easy setup on other devices</Text>
+              </VStack>
+
+              <Text fontSize="sm" color="gray.600">
+                Groups are perfect for sharing locations with family members, teams, or any trusted group
+                of people. Each group member can decrypt and view shared locations.
+              </Text>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onHelpClose}>Close</Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
     </Box>
