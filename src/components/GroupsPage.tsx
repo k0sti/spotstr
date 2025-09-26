@@ -273,20 +273,6 @@ export function GroupsPage() {
         </Box>
       )}
 
-      <Divider my={6} />
-
-      <Box p={4} bg="gray.50" borderRadius="md">
-        <Text fontSize="sm" fontWeight="bold" mb={2}>About Groups</Text>
-        <Text fontSize="xs" color="gray.600" mb={2}>
-          Groups are Nostr identities managed by the app. They have their own keys (nsec/npub) that can be used to share locations with multiple contacts.
-        </Text>
-        <Text fontSize="xs" color="gray.600">
-          • Generate new keys for a fresh group identity
-          • Import existing nsec keys to use an existing identity
-          • Share groups via URL for easy setup on other devices
-        </Text>
-      </Box>
-
       {/* Create Group Modal */}
       <Modal isOpen={isOpen} onClose={onClose}>
         <ModalOverlay />

@@ -32,7 +32,12 @@ import {
   ModalBody,
   ModalCloseButton,
   ModalFooter,
-  VStack
+  VStack,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 import { useAccounts } from 'applesauce-react/hooks'
@@ -52,6 +57,7 @@ export function LocationsPage() {
   const toast = useToast()
   const cancelRef = useRef(null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [selectedTab, setSelectedTab] = useState(0)
 
   // Collect all unique npubs from location events
   const allNpubs = useMemo(() => {
@@ -137,60 +143,63 @@ export function LocationsPage() {
     })
   }
 
-  // Count public and private events
-  const publicCount = locationEvents.filter(e => e.eventKind === 30472).length
-  const privateCount = locationEvents.filter(e => e.eventKind === 30473).length
-  const encryptedCount = locationEvents.filter(e => e.geohash === 'encrypted').length
+  // Get my npubs (from accounts and groups)
+  const myNpubs = useMemo(() => {
+    const npubs = new Set<string>()
+    // Add account npubs
+    accounts.forEach(account => {
+      npubs.add(nip19.npubEncode(account.pubkey))
+    })
+    // Add group npubs
+    groups.forEach(group => {
+      npubs.add(group.npub)
+    })
+    return npubs
+  }, [accounts, groups])
 
-  return (
-    <Box>
-      <HStack justify="space-between" mb={4}>
-        <HStack spacing={3}>
-          <Text fontSize="lg" fontWeight="bold" color="gray.800">Locations</Text>
-          <Text fontSize="sm" color="gray.600">({locationEvents.length})</Text>
-          {publicCount > 0 && (
-            <Badge colorScheme="blue" variant="subtle" fontSize="xs">Public: {publicCount}</Badge>
-          )}
-          {privateCount > 0 && (
-            <Badge colorScheme="red" variant="subtle" fontSize="xs">Private: {privateCount}</Badge>
-          )}
-          {encryptedCount > 0 && (
-            <Badge colorScheme="orange" variant="subtle" fontSize="xs">Encrypted: {encryptedCount}</Badge>
-          )}
-        </HStack>
-        <HStack spacing={2}>
-          <Tooltip label="Add Location" placement="bottom">
-            <IconButton
-              aria-label="Add Location"
-              icon={<span style={{ fontSize: '2rem' }}>+</span>}
-              size="sm"
-              colorScheme="blue"
-              onClick={onOpen}
-            />
-          </Tooltip>
-          <Tooltip label="Clear All" placement="bottom">
-            <IconButton
-              aria-label="Clear all locations"
-              icon={<span>🗑️</span>}
-              size="sm"
-              colorScheme="red"
-              variant="outline"
-              onClick={onResetOpen}
-              isDisabled={locationEvents.length === 0}
-            />
-          </Tooltip>
-          <Tooltip label="About Locations" placement="bottom">
-            <IconButton
-              aria-label="Help"
-              icon={<span style={{ fontSize: '1.5rem' }}>?</span>}
-              size="sm"
-              colorScheme="blue"
-              onClick={onHelpOpen}
-            />
-          </Tooltip>
-        </HStack>
-      </HStack>
+  // Categorize events
+  const categorizedEvents = useMemo(() => {
+    const shared: typeof locationEvents = []
+    const contacts: typeof locationEvents = []
+    const publicEvents: typeof locationEvents = []
+    const encrypted: typeof locationEvents = []
 
+    locationEvents.forEach(event => {
+      // Public events
+      if (event.eventKind === 30472) {
+        publicEvents.push(event)
+      }
+      // Private events
+      else if (event.eventKind === 30473) {
+        // Still encrypted
+        if (event.geohash === 'encrypted') {
+          encrypted.push(event)
+        }
+        // Decrypted - check if shared by me or to me
+        else {
+          if (myNpubs.has(event.senderNpub)) {
+            shared.push(event)
+          } else if (event.receiverNpub && myNpubs.has(event.receiverNpub)) {
+            contacts.push(event)
+          }
+        }
+      }
+    })
+
+    return { shared, contacts, publicEvents, encrypted }
+  }, [locationEvents, myNpubs])
+
+  // Render location table component
+  const LocationTable = ({ events, emptyMessage }: { events: typeof locationEvents, emptyMessage: string }) => {
+    if (events.length === 0) {
+      return (
+        <Box p={8} textAlign="center">
+          <Text color="gray.600">{emptyMessage}</Text>
+        </Box>
+      )
+    }
+
+    return (
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
@@ -202,7 +211,7 @@ export function LocationsPage() {
           </Tr>
         </Thead>
         <Tbody>
-          {locationEvents.map((event) => (
+          {events.map((event) => (
             <React.Fragment key={event.id}>
               <Tr
                 cursor="pointer"
@@ -301,6 +310,103 @@ export function LocationsPage() {
           ))}
         </Tbody>
       </Table>
+    )
+  }
+
+  return (
+    <Box>
+      <HStack justify="space-between" mb={4}>
+        <HStack spacing={3}>
+          <Text fontSize="lg" fontWeight="bold" color="gray.800">Locations</Text>
+          <Text fontSize="sm" color="gray.600">({locationEvents.length})</Text>
+        </HStack>
+        <HStack spacing={2}>
+          <Tooltip label="Add Location" placement="bottom">
+            <IconButton
+              aria-label="Add Location"
+              icon={<span style={{ fontSize: '2rem' }}>+</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onOpen}
+            />
+          </Tooltip>
+          <Tooltip label="About Locations" placement="bottom">
+            <IconButton
+              aria-label="Help"
+              icon={<span style={{ fontSize: '1.5rem' }}>?</span>}
+              size="sm"
+              colorScheme="blue"
+              onClick={onHelpOpen}
+            />
+          </Tooltip>
+          <Tooltip label="Clear All" placement="bottom">
+            <IconButton
+              aria-label="Clear all locations"
+              icon={<span>🗑️</span>}
+              size="sm"
+              colorScheme="red"
+              onClick={onResetOpen}
+              isDisabled={locationEvents.length === 0}
+            />
+          </Tooltip>
+        </HStack>
+      </HStack>
+
+      <Tabs index={selectedTab} onChange={setSelectedTab} variant="enclosed" colorScheme="blue">
+        <TabList>
+          <Tab>
+            <HStack spacing={2}>
+              <Text>Shared</Text>
+              <Badge colorScheme="green" size="sm">{categorizedEvents.shared.length}</Badge>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              <Text>Contacts</Text>
+              <Badge colorScheme="purple" size="sm">{categorizedEvents.contacts.length}</Badge>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              <Text>Public</Text>
+              <Badge colorScheme="blue" size="sm">{categorizedEvents.publicEvents.length}</Badge>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              <Text>Encrypted</Text>
+              <Badge colorScheme="orange" size="sm">{categorizedEvents.encrypted.length}</Badge>
+            </HStack>
+          </Tab>
+        </TabList>
+
+        <TabPanels>
+          <TabPanel px={0}>
+            <LocationTable
+              events={categorizedEvents.shared}
+              emptyMessage="No locations shared by you yet"
+            />
+          </TabPanel>
+          <TabPanel px={0}>
+            <LocationTable
+              events={categorizedEvents.contacts}
+              emptyMessage="No locations shared to you yet"
+            />
+          </TabPanel>
+          <TabPanel px={0}>
+            <LocationTable
+              events={categorizedEvents.publicEvents}
+              emptyMessage="No public location events"
+            />
+          </TabPanel>
+          <TabPanel px={0}>
+            <LocationTable
+              events={categorizedEvents.encrypted}
+              emptyMessage="No encrypted events awaiting decryption"
+            />
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
 
       {/* Add Location Modal */}
       <AddLocationModal
@@ -369,24 +475,29 @@ export function LocationsPage() {
               </Text>
 
               <VStack align="stretch" spacing={2}>
-                <Text fontSize="sm" fontWeight="semibold">Event Types:</Text>
+                <Text fontSize="sm" fontWeight="semibold">Location Tabs:</Text>
                 <HStack>
-                  <Badge colorScheme="blue">Public</Badge>
-                  <Text fontSize="sm">Visible to everyone on the network</Text>
+                  <Badge colorScheme="green">Shared</Badge>
+                  <Text fontSize="sm">Locations you've shared with others</Text>
                 </HStack>
                 <HStack>
-                  <Badge colorScheme="red">Private</Badge>
-                  <Text fontSize="sm">Encrypted for specific recipients only</Text>
+                  <Badge colorScheme="purple">Contacts</Badge>
+                  <Text fontSize="sm">Locations shared with you</Text>
+                </HStack>
+                <HStack>
+                  <Badge colorScheme="blue">Public</Badge>
+                  <Text fontSize="sm">Public events visible to everyone</Text>
                 </HStack>
                 <HStack>
                   <Badge colorScheme="orange">Encrypted</Badge>
-                  <Text fontSize="sm">Awaiting decryption (missing identity key)</Text>
+                  <Text fontSize="sm">Private events awaiting decryption</Text>
                 </HStack>
               </VStack>
 
               <Text fontSize="sm" color="gray.600">
                 Click on any location's geohash to focus it on the map. Expand rows to see
-                full event details including event IDs and timestamps.
+                full event details including event IDs and timestamps. Add identities or groups
+                to decrypt encrypted events.
               </Text>
             </VStack>
           </ModalBody>

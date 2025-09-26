@@ -305,7 +305,6 @@ export function SettingsPage() {
                 <Text fontSize="sm">• 👥 Group-based location sharing</Text>
                 <Text fontSize="sm">• 📍 Public or private location events</Text>
                 <Text fontSize="sm">• 🗺️ Real-time map visualization</Text>
-                <Text fontSize="sm">• 🔄 Addressable events for location updates</Text>
               </VStack>
 
               <VStack align="stretch" spacing={2}>
