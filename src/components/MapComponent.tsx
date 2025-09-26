@@ -266,35 +266,86 @@ export function MapComponent() {
   useEffect(() => {
     if (!mapRef.current) return
 
-    // Identify new or updated locations
-    const newOrUpdatedLocationIds = new Set<string>()
+    // Create sets for efficient lookups
+    const currentLocationIds = new Set(locations.map(l => l.id))
+    const existingLocationIds = new Set(rectanglesRef.current.keys())
 
+    // Identify locations to remove, add, and update
+    const toRemove = new Set<string>()
+    const toAdd = new Set<string>()
+    const toUpdate = new Set<string>()
+
+    // Find locations to remove (no longer in current locations)
+    existingLocationIds.forEach(id => {
+      if (!currentLocationIds.has(id)) {
+        toRemove.add(id)
+      }
+    })
+
+    // Find locations to add or update
     locations.forEach(location => {
       const previousData = previousLocationsMap.current.get(location.id)
 
-      // Check if this is a new location or if it has been updated
-      if (!previousData ||
-          previousData.timestamp !== location.event.created_at ||
-          previousData.geohash !== location.event.geohash) {
-        newOrUpdatedLocationIds.add(location.id)
+      if (!existingLocationIds.has(location.id)) {
+        // New location
+        toAdd.add(location.id)
+      } else if (previousData &&
+                 (previousData.timestamp !== location.event.created_at ||
+                  previousData.geohash !== location.event.geohash)) {
+        // Updated location
+        toUpdate.add(location.id)
       }
     })
 
-    // Clear existing rectangles, markers, and circles
-    rectanglesRef.current.forEach(rect => {
-      rect.remove()
-      // Also remove the associated marker and accuracy circle
-      if ((rect as any)._associatedMarker) {
-        (rect as any)._associatedMarker.remove()
-      }
-      if ((rect as any)._associatedCircle) {
-        (rect as any)._associatedCircle.remove()
+    // Remove markers for deleted locations
+    toRemove.forEach(id => {
+      const rect = rectanglesRef.current.get(id)
+      if (rect) {
+        rect.remove()
+        if ((rect as any)._associatedMarker) {
+          (rect as any)._associatedMarker.remove()
+        }
+        if ((rect as any)._associatedCircle) {
+          (rect as any)._associatedCircle.remove()
+        }
+        rectanglesRef.current.delete(id)
       }
     })
-    rectanglesRef.current.clear()
 
-    // Add rectangles and center markers for each location
-    locations.forEach(location => {
+    // Update existing markers that changed
+    toUpdate.forEach(id => {
+      const location = locations.find(l => l.id === id)
+      if (!location) return
+
+      const rect = rectanglesRef.current.get(id)
+      if (rect) {
+        // Check if popup is open before removing
+        const marker = (rect as any)._associatedMarker as L.Marker
+        const isPopupOpen = marker && marker.isPopupOpen()
+
+        // Remove old marker
+        rect.remove()
+        if ((rect as any)._associatedMarker) {
+          (rect as any)._associatedMarker.remove()
+        }
+        if ((rect as any)._associatedCircle) {
+          (rect as any)._associatedCircle.remove()
+        }
+        rectanglesRef.current.delete(id)
+
+        // Add the updated marker (it will be added in the next section)
+        toAdd.add(id)
+
+        // Store popup state to restore later
+        if (isPopupOpen) {
+          (location as any)._restorePopup = true
+        }
+      }
+    })
+
+    // Add new markers and updated markers
+    const locationsToAdd = locations.filter(l => toAdd.has(l.id) || toUpdate.has(l.id))
+    locationsToAdd.forEach(location => {
       const bounds = L.latLngBounds(
         [location.bounds.minLat, location.bounds.minLng],
         [location.bounds.maxLat, location.bounds.maxLng]
@@ -304,7 +355,7 @@ export function MapComponent() {
       const isPublic = location.event.eventKind === 30472
       const rectangleColor = isPublic ? '#2563eb' : '#dc2626' // blue for public, red for private
       const defaultIcon = isPublic ? publicIcon : privateIcon
-      const isNewOrUpdated = newOrUpdatedLocationIds.has(location.id)
+      const isNewOrUpdated = toAdd.has(location.id) || toUpdate.has(location.id)
 
       // Add rectangle for the geohash bounds
       const rectangle = L.rectangle(bounds, {
@@ -330,6 +381,12 @@ export function MapComponent() {
             marker.setIcon(defaultIcon)
           }
         }, 500)
+      }
+
+      // Restore popup if it was open before update
+      if ((location as any)._restorePopup) {
+        marker.openPopup()
+        delete (location as any)._restorePopup
       }
 
       // Add accuracy circle if accuracy is available
