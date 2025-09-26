@@ -22,23 +22,19 @@ import {
   IconButton,
   useToast,
   Badge,
-  Tooltip,
   ButtonGroup,
   Link,
   Divider,
-  Spinner,
-  Editable,
-  EditableInput,
-  EditablePreview,
-  Avatar
+  Spinner
 } from '@chakra-ui/react'
 import { useAccountManager, useAccounts } from 'applesauce-react/hooks'
 import { ExtensionAccount, SimpleAccount, NostrConnectAccount } from 'applesauce-accounts/accounts'
 import { ExtensionSigner, SimpleSigner, NostrConnectSigner } from 'applesauce-signers'
-import { npubEncode, nsecEncode } from 'nostr-tools/nip19'
 import { generateNostrKeyPair } from '../utils/crypto'
 import { fetchProfile } from '../utils/profileRelays'
 import { useAccountCustomNames } from '../hooks/useAccountCustomNames'
+import { IdentityDisplay } from './shared/IdentityDisplay'
+import { KeyDisplay } from './shared/KeyDisplay'
 
 // Check if we're on Android
 const IS_WEB_ANDROID = /android/i.test(navigator.userAgent)
@@ -65,102 +61,39 @@ const getAccountTypeLabel = (type: string) => {
 }
 
 // Identity Row Component
-function IdentityRow({ account, onDelete, onCopy, customName, onUpdateCustomName }: {
+function IdentityRow({ account, onDelete, customName, onUpdateCustomName }: {
   account: any
   onDelete: (account: any) => void
-  onCopy: (text: string, label: string) => void
   customName?: string
   onUpdateCustomName: (pubkey: string, name: string) => void
 }) {
   // Check if account has access to private key (only simple accounts have it)
-  const hasPrivateKey = account.metadata?._secretKey
-  const npubFull = useMemo(() => {
-    try {
-      return npubEncode(account.pubkey)
-    } catch {
-      return account.pubkey
-    }
-  }, [account.pubkey])
+  const secretKey = account.metadata?._secretKey
 
-  const npubShort = useMemo(() => {
-    if (npubFull.startsWith('npub')) {
-      const withoutPrefix = npubFull.slice(4)
-      return `${withoutPrefix.slice(0, 5)}..${withoutPrefix.slice(-5)}`
-    }
-    return account.pubkey.slice(0, 8) + '...'
-  }, [npubFull])
+  // Create the badge element
+  const badge = (
+    <Badge colorScheme={getAccountTypeBadgeColor(account.type)} size="sm">
+      {getAccountTypeLabel(account.type)}
+    </Badge>
+  )
 
   return (
     <Tr>
       <Td>
-        <Badge colorScheme={getAccountTypeBadgeColor(account.type)}>
-          {getAccountTypeLabel(account.type)}
-        </Badge>
+        <IdentityDisplay
+          pubkey={account.pubkey}
+          metadata={account.metadata}
+          customName={customName}
+          onUpdateCustomName={(name) => onUpdateCustomName(account.pubkey, name)}
+        />
       </Td>
       <Td>
-        <HStack spacing={3}>
-          <Avatar
-            size="sm"
-            src={account.metadata?.picture}
-            name={account.metadata?.name || customName || 'Unknown'}
-          />
-          <VStack align="start" spacing={0}>
-            {account.metadata?.name && (
-              <Text fontSize="sm" fontWeight="medium">
-                {account.metadata.name}
-              </Text>
-            )}
-            <Editable
-              defaultValue={customName || ''}
-              placeholder={account.metadata?.name ? 'Add custom name' : 'Custom name'}
-              onSubmit={(value) => onUpdateCustomName(account.pubkey, value)}
-              fontSize="xs"
-              color="blue.600"
-              fontStyle="italic"
-            >
-              <EditablePreview />
-              <EditableInput />
-            </Editable>
-          </VStack>
-        </HStack>
-      </Td>
-      <Td>
-        <VStack align="start" spacing={0}>
-          <HStack spacing={1}>
-            <Text fontSize="xs" color="gray.600">npub</Text>
-            <Tooltip label="Copy npub">
-              <IconButton
-                size="xs"
-                aria-label="Copy npub"
-                icon={<span>📋</span>}
-                variant="ghost"
-                onClick={() => onCopy(npubFull, 'Public key')}
-              />
-            </Tooltip>
-            {hasPrivateKey && (
-              <Tooltip label="Copy nsec (sensitive!)">
-                <IconButton
-                  size="xs"
-                  aria-label="Copy nsec"
-                  icon={<span>🔐</span>}
-                  variant="ghost"
-                  colorScheme="red"
-                  onClick={() => {
-                    try {
-                      const nsec = nsecEncode(account.metadata._secretKey)
-                      onCopy(nsec, 'Private key (keep this secret!)')
-                    } catch (error) {
-                      console.error('Failed to encode nsec:', error)
-                    }
-                  }}
-                />
-              </Tooltip>
-            )}
-          </HStack>
-          <Text fontSize="xs" fontFamily="mono" color="gray.700">
-            {npubShort}
-          </Text>
-        </VStack>
+        <KeyDisplay
+          pubkey={account.pubkey}
+          secretKey={secretKey}
+          showPrivateKey={!!secretKey}
+          badge={badge}
+        />
       </Td>
       <Td>
         <IconButton
@@ -489,23 +422,6 @@ export function IdentitiesPage() {
     })
   }
 
-  // Copy to clipboard
-  const copyToClipboard = async (text: string, type: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      toast({
-        title: `${type} copied`,
-        status: 'success',
-        duration: 2000,
-      })
-    } catch (error) {
-      toast({
-        title: 'Copy failed',
-        status: 'error',
-        duration: 2000,
-      })
-    }
-  }
 
 
   return (
@@ -518,9 +434,8 @@ export function IdentitiesPage() {
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
-            <Th>Type</Th>
-            <Th>Identity</Th>
-            <Th>Public Key</Th>
+            <Th>Profile</Th>
+            <Th>Key</Th>
             <Th>Actions</Th>
           </Tr>
         </Thead>
@@ -530,7 +445,6 @@ export function IdentitiesPage() {
               key={account.pubkey}
               account={account}
               onDelete={handleDeleteAccount}
-              onCopy={copyToClipboard}
               customName={customNames[account.pubkey]}
               onUpdateCustomName={setCustomName}
             />

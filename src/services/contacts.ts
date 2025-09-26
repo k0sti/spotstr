@@ -1,5 +1,6 @@
 import { BehaviorSubject } from 'rxjs'
 import * as nip19 from 'nostr-tools/nip19'
+import { fetchProfile } from '../utils/profileRelays'
 
 export interface Contact {
   id: string // npub
@@ -22,6 +23,8 @@ class ContactsManager {
 
   constructor() {
     this.loadContacts()
+    // Refresh profiles for existing contacts on startup
+    this.refreshAllProfiles()
   }
 
   private loadContacts() {
@@ -41,7 +44,7 @@ class ContactsManager {
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(contacts))
   }
 
-  public addContact(npubOrHex: string, customName?: string): Contact | null {
+  public async addContact(npubOrHex: string, customName?: string): Promise<Contact | null> {
     try {
       let npub: string
       let pubkey: string
@@ -75,8 +78,12 @@ class ContactsManager {
         createdAt: Date.now()
       }
 
+      // Add contact immediately
       this.contacts$.next([...existingContacts, contact])
       this.saveContacts()
+
+      // Fetch profile metadata asynchronously
+      this.fetchAndUpdateProfile(npub, pubkey)
 
       return contact
     } catch (error) {
@@ -85,7 +92,28 @@ class ContactsManager {
     }
   }
 
-  public addMultipleContacts(npubList: string[]): { added: Contact[], failed: string[] } {
+  private async fetchAndUpdateProfile(npub: string, pubkey: string) {
+    try {
+      const profile = await fetchProfile(pubkey)
+      if (profile) {
+        this.updateContact(npub, { metadata: profile })
+      }
+    } catch (error) {
+      console.error('Failed to fetch profile for contact:', error)
+    }
+  }
+
+  public async refreshAllProfiles() {
+    const contacts = this.contacts$.value
+    for (const contact of contacts) {
+      // Only refresh if no metadata or missing profile picture
+      if (!contact.metadata || !contact.metadata.picture) {
+        await this.fetchAndUpdateProfile(contact.npub, contact.pubkey)
+      }
+    }
+  }
+
+  public async addMultipleContacts(npubList: string[]): Promise<{ added: Contact[], failed: string[] }> {
     const added: Contact[] = []
     const failed: string[] = []
 
@@ -93,7 +121,7 @@ class ContactsManager {
       const trimmed = npub.trim()
       if (!trimmed) continue
 
-      const contact = this.addContact(trimmed)
+      const contact = await this.addContact(trimmed)
       if (contact) {
         added.push(contact)
       } else {

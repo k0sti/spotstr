@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import {
   Box,
   Button,
@@ -15,8 +15,6 @@ import {
   IconButton,
   useToast,
   Tooltip,
-  Input,
-  Avatar,
   Modal,
   ModalOverlay,
   ModalContent,
@@ -28,122 +26,31 @@ import {
   Badge
 } from '@chakra-ui/react'
 import { useContacts } from '../hooks/useContacts'
+import { IdentityDisplay } from './shared/IdentityDisplay'
+import { KeyDisplay } from './shared/KeyDisplay'
 
 // Contact Row Component
 function ContactRow({
   contact,
   onDelete,
-  onCopy,
   onUpdateCustomName
 }: {
   contact: any
   onDelete: (contact: any) => void
-  onCopy: (text: string, label: string) => void
   onUpdateCustomName: (id: string, name: string) => void
 }) {
-  const [isEditingName, setIsEditingName] = useState(false)
-  const [customNameInput, setCustomNameInput] = useState(contact.customName || '')
-
-  const npubShort = useMemo(() => {
-    if (contact.npub.startsWith('npub')) {
-      const withoutPrefix = contact.npub.slice(4)
-      return `${withoutPrefix.slice(0, 5)}..${withoutPrefix.slice(-5)}`
-    }
-    return contact.npub.slice(0, 8) + '...'
-  }, [contact.npub])
-
-  const displayName = contact.customName || contact.metadata?.display_name || contact.metadata?.name || 'Unknown'
-
-  const handleSaveCustomName = () => {
-    onUpdateCustomName(contact.id, customNameInput)
-    setIsEditingName(false)
-  }
-
   return (
     <Tr>
       <Td>
-        <HStack spacing={3}>
-          <Avatar
-            size="sm"
-            src={contact.metadata?.picture}
-            name={displayName}
-          />
-          <VStack align="start" spacing={0}>
-            {contact.metadata?.display_name || contact.metadata?.name ? (
-              <Text fontSize="sm" fontWeight="medium">
-                {contact.metadata.display_name || contact.metadata.name}
-              </Text>
-            ) : null}
-            {isEditingName ? (
-              <HStack spacing={1}>
-                <Input
-                  size="xs"
-                  value={customNameInput}
-                  onChange={(e) => setCustomNameInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSaveCustomName()
-                    if (e.key === 'Escape') {
-                      setCustomNameInput(contact.customName || '')
-                      setIsEditingName(false)
-                    }
-                  }}
-                  placeholder="Custom name"
-                  autoFocus
-                />
-                <IconButton
-                  size="xs"
-                  aria-label="Save"
-                  icon={<span>✓</span>}
-                  onClick={handleSaveCustomName}
-                  colorScheme="green"
-                />
-                <IconButton
-                  size="xs"
-                  aria-label="Cancel"
-                  icon={<span>✗</span>}
-                  onClick={() => {
-                    setCustomNameInput(contact.customName || '')
-                    setIsEditingName(false)
-                  }}
-                  colorScheme="red"
-                />
-              </HStack>
-            ) : (
-              <HStack spacing={1}>
-                {contact.customName ? (
-                  <Text fontSize="xs" color="blue.600" fontStyle="italic">
-                    {contact.customName}
-                  </Text>
-                ) : null}
-                <Tooltip label="Edit custom name">
-                  <IconButton
-                    size="xs"
-                    aria-label="Edit name"
-                    icon={<span>✏️</span>}
-                    variant="ghost"
-                    onClick={() => setIsEditingName(true)}
-                  />
-                </Tooltip>
-              </HStack>
-            )}
-          </VStack>
-        </HStack>
+        <IdentityDisplay
+          pubkey={contact.pubkey}
+          metadata={contact.metadata}
+          customName={contact.customName}
+          onUpdateCustomName={(name) => onUpdateCustomName(contact.id, name)}
+        />
       </Td>
       <Td>
-        <HStack spacing={1}>
-          <Text fontSize="xs" fontFamily="mono" color="gray.700">
-            {npubShort}
-          </Text>
-          <Tooltip label="Copy npub">
-            <IconButton
-              size="xs"
-              aria-label="Copy npub"
-              icon={<span>📋</span>}
-              variant="ghost"
-              onClick={() => onCopy(contact.npub, 'Contact npub')}
-            />
-          </Tooltip>
-        </HStack>
+        <KeyDisplay pubkey={contact.pubkey} showPrivateKey={false} />
       </Td>
       <Td>
         <Tooltip label="Delete contact">
@@ -168,7 +75,7 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
   const { addMultipleContacts } = useContacts()
   const toast = useToast()
 
-  const handleImport = () => {
+  const handleImport = async () => {
     // Split by newlines, commas, or spaces
     const npubList = npubInput
       .split(/[\n,\s]+/)
@@ -185,7 +92,7 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
       return
     }
 
-    const { added, failed } = addMultipleContacts(npubList)
+    const { added, failed } = await addMultipleContacts(npubList)
 
     if (added.length > 0) {
       setImportCount(prev => prev + added.length)
@@ -193,7 +100,7 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
 
       toast({
         title: 'Contacts imported',
-        description: `Added ${added.length} contact(s)`,
+        description: `Added ${added.length} contact(s). Fetching profiles...`,
         status: 'success',
         duration: 3000,
       })
@@ -274,23 +181,6 @@ export function ContactsPage() {
     })
   }
 
-  const copyToClipboard = async (text: string, type: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      toast({
-        title: `${type} copied`,
-        status: 'success',
-        duration: 2000,
-      })
-    } catch (error) {
-      toast({
-        title: 'Copy failed',
-        status: 'error',
-        duration: 2000,
-      })
-    }
-  }
-
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
@@ -312,8 +202,8 @@ export function ContactsPage() {
         <Table size="sm" variant="simple">
           <Thead>
             <Tr>
-              <Th>Identity</Th>
-              <Th>Npub</Th>
+              <Th>Profile</Th>
+              <Th>Key</Th>
               <Th>Actions</Th>
             </Tr>
           </Thead>
@@ -323,7 +213,6 @@ export function ContactsPage() {
                 key={contact.id}
                 contact={contact}
                 onDelete={handleDeleteContact}
-                onCopy={copyToClipboard}
                 onUpdateCustomName={updateCustomName}
               />
             ))}

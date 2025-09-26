@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import {
   Box,
   Button,
@@ -24,106 +24,65 @@ import {
   Tooltip,
   Divider
 } from '@chakra-ui/react'
+import { QRCodeCanvas } from 'qrcode.react'
 import { useGroups } from '../hooks/useGroups'
+import { useGroupCustomNames } from '../hooks/useGroupCustomNames'
+import { IdentityDisplay } from './shared/IdentityDisplay'
+import { KeyDisplay } from './shared/KeyDisplay'
+import { npubToHex } from '../utils/crypto'
 
 // Group Row Component
-function GroupRow({ group, onDelete, onCopy, onShare }: {
+function GroupRow({ group, onDelete, onShare, onCopyShareUrl, customName, onUpdateCustomName }: {
   group: any
   onDelete: (group: any) => void
-  onCopy: (text: string, label: string) => void
   onShare: (group: any) => void
+  onCopyShareUrl: (group: any) => void
+  customName?: string
+  onUpdateCustomName: (groupId: string, name: string) => void
 }) {
-  const npubFull = group.npub
-  const npubShort = useMemo(() => {
-    if (npubFull.startsWith('npub')) {
-      const withoutPrefix = npubFull.slice(4)
-      return `${withoutPrefix.slice(0, 5)}..${withoutPrefix.slice(-5)}`
-    }
-    return group.npub.slice(0, 8) + '...'
-  }, [npubFull, group.npub])
-
-  const nsecShort = useMemo(() => {
-    if (group.nsec.startsWith('nsec')) {
-      const withoutPrefix = group.nsec.slice(4)
-      return `${withoutPrefix.slice(0, 5)}..${withoutPrefix.slice(-5)}`
-    }
-    return 'Hidden'
-  }, [group.nsec])
+  const pubkey = npubToHex(group.npub)
 
   return (
     <Tr>
       <Td>
-        <HStack spacing={2}>
-          {group.metadata?.picture && (
-            <Box
-              width="24px"
-              height="24px"
-              borderRadius="full"
-              overflow="hidden"
-              flexShrink={0}
-            >
-              <img
-                src={group.metadata.picture}
-                alt={group.name || 'Group'}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none'
-                }}
-              />
-            </Box>
-          )}
-          <Text fontSize="sm" fontWeight="medium">
-            {group.name}
-          </Text>
-        </HStack>
+        <IdentityDisplay
+          pubkey={pubkey}
+          metadata={{ picture: group.metadata?.picture }}
+          customName={customName || group.name}
+          onUpdateCustomName={(name) => onUpdateCustomName(group.id, name)}
+        />
       </Td>
       <Td>
-        <VStack align="start" spacing={0}>
-          <HStack spacing={1}>
-            <Text fontSize="xs" color="gray.600">npub</Text>
-            <Tooltip label="Copy npub">
-              <IconButton
-                size="xs"
-                aria-label="Copy npub"
-                icon={<span>📋</span>}
-                variant="ghost"
-                onClick={() => onCopy(npubFull, 'Group public key')}
-              />
-            </Tooltip>
-          </HStack>
-          <Text fontSize="xs" fontFamily="mono" color="gray.700">
-            {npubShort}
-          </Text>
-        </VStack>
-      </Td>
-      <Td>
-        <VStack align="start" spacing={0}>
-          <HStack spacing={1}>
-            <Text fontSize="xs" color="gray.600">nsec</Text>
-            <Tooltip label="Copy nsec (sensitive!)">
-              <IconButton
-                size="xs"
-                aria-label="Copy nsec"
-                icon={<span>🔐</span>}
-                variant="ghost"
-                colorScheme="red"
-                onClick={() => onCopy(group.nsec, 'Group private key (keep this secret!)')}
-              />
-            </Tooltip>
-          </HStack>
-          <Text fontSize="xs" fontFamily="mono" color="gray.700">
-            {nsecShort}
-          </Text>
-        </VStack>
+        <KeyDisplay pubkey={pubkey} secretKey={group.nsec} />
       </Td>
       <Td>
         <HStack spacing={1}>
-          <Tooltip label="Share group">
+          <Tooltip label="Copy share URL">
             <IconButton
               size="xs"
-              aria-label="Share group"
+              aria-label="Copy share URL"
               icon={<span>🔗</span>}
               colorScheme="blue"
+              variant="ghost"
+              onClick={() => onCopyShareUrl(group)}
+            />
+          </Tooltip>
+          <Tooltip label="Show QR code">
+            <IconButton
+              size="xs"
+              aria-label="Show QR code"
+              icon={
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M0 0h7v7H0V0zm2 2v3h3V2H2zm7-2h7v7H9V0zm2 2v3h3V2h-3zM0 9h7v7H0V9zm2 2v3h3v-3H2z"/>
+                  <rect x="9" y="9" width="2" height="2"/>
+                  <rect x="12" y="9" width="2" height="2"/>
+                  <rect x="9" y="12" width="2" height="2"/>
+                  <rect x="12" y="12" width="2" height="2"/>
+                  <rect x="11" y="10" width="2" height="2"/>
+                  <rect x="10" y="11" width="2" height="2"/>
+                </svg>
+              }
+              colorScheme="purple"
               variant="ghost"
               onClick={() => onShare(group)}
             />
@@ -152,6 +111,7 @@ export function GroupsPage() {
     deleteGroup,
     generateShareUrl
   } = useGroups()
+  const { customNames, setCustomName } = useGroupCustomNames()
   const toast = useToast()
   const [nameInput, setNameInput] = useState('')
   const [nsecInput, setNsecInput] = useState('')
@@ -244,6 +204,12 @@ export function GroupsPage() {
     onShareOpen()
   }
 
+  // Handle copy share URL
+  const handleCopyShareUrl = (group: any) => {
+    const url = generateShareUrl(group)
+    copyToClipboard(url, 'Share URL')
+  }
+
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
@@ -254,9 +220,8 @@ export function GroupsPage() {
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
-            <Th>Name</Th>
-            <Th>Public Key</Th>
-            <Th>Private Key</Th>
+            <Th>Profile</Th>
+            <Th>Key</Th>
             <Th>Actions</Th>
           </Tr>
         </Thead>
@@ -266,8 +231,10 @@ export function GroupsPage() {
               key={group.id}
               group={group}
               onDelete={handleDeleteGroup}
-              onCopy={copyToClipboard}
               onShare={handleShareGroup}
+              onCopyShareUrl={handleCopyShareUrl}
+              customName={customNames[group.id]}
+              onUpdateCustomName={setCustomName}
             />
           ))}
         </Tbody>
@@ -361,6 +328,18 @@ export function GroupsPage() {
               <Text fontSize="sm" color="gray.600">
                 Share this URL to import the group on another device:
               </Text>
+
+              {/* QR Code */}
+              <Box display="flex" justifyContent="center" p={4} bg="white" borderRadius="md">
+                {shareUrl && (
+                  <QRCodeCanvas
+                    value={shareUrl}
+                    size={200}
+                    level="M"
+                    marginSize={1}
+                  />
+                )}
+              </Box>
 
               <Box
                 p={3}
