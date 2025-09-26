@@ -172,7 +172,7 @@ export function LocationsPage({ onClose: onPageClose }: LocationsPageProps = {})
   // Categorize events
   const categorizedEvents = useMemo(() => {
     const shared: typeof locationEvents = []
-    const contacts: typeof locationEvents = []
+    const forMe: typeof locationEvents = []  // Renamed from contacts - includes locations sent to my identities or groups
     const publicEvents: typeof locationEvents = []
     const encrypted: typeof locationEvents = []
 
@@ -187,18 +187,22 @@ export function LocationsPage({ onClose: onPageClose }: LocationsPageProps = {})
         if (event.geohash === 'encrypted') {
           encrypted.push(event)
         }
-        // Decrypted - check if shared by me or to me
+        // Decrypted - check if shared by me or to me (can be both!)
         else {
+          // Add to shared if I'm the sender
           if (myNpubs.has(event.senderNpub)) {
             shared.push(event)
-          } else if (event.receiverNpub && myNpubs.has(event.receiverNpub)) {
-            contacts.push(event)
+          }
+          // Add to forMe if I'm the receiver (including self-shared)
+          if (event.receiverNpub && myNpubs.has(event.receiverNpub)) {
+            // Location is for me (sent to my identity or group)
+            forMe.push(event)
           }
         }
       }
     })
 
-    return { shared, contacts, publicEvents, encrypted }
+    return { shared, forMe, publicEvents, encrypted }
   }, [locationEvents, myNpubs])
 
   // Render location table component - memoized to prevent unnecessary re-renders
@@ -542,8 +546,8 @@ export function LocationsPage({ onClose: onPageClose }: LocationsPageProps = {})
           </Tab>
           <Tab>
             <HStack spacing={2}>
-              <Text>Contacts</Text>
-              <Badge colorScheme="purple" size="sm">{categorizedEvents.contacts.length}</Badge>
+              <Text>For Me</Text>
+              <Badge colorScheme="purple" size="sm">{categorizedEvents.forMe.length}</Badge>
             </HStack>
           </Tab>
           <Tab>
@@ -574,8 +578,8 @@ export function LocationsPage({ onClose: onPageClose }: LocationsPageProps = {})
           <TabPanel px={0}>
             {selectedTab === 1 && (
               <LocationTable
-                events={categorizedEvents.contacts}
-                emptyMessage="No locations shared to you yet"
+                events={categorizedEvents.forMe}
+                emptyMessage="No locations sent to you or your groups yet"
                 expandedRows={expandedRows}
                 onToggleRow={toggleRow}
               />
