@@ -22,7 +22,6 @@ import {
   AlertDialogOverlay,
   AlertDialogCloseButton,
   Badge,
-  Stack,
   Avatar,
   Tooltip,
   Modal,
@@ -283,26 +282,94 @@ export function LocationsPage() {
               <Tr display={expandedRows.has(event.id) ? 'table-row' : 'none'}>
                 <Td colSpan={5} bg="gray.50" p={4}>
                   <Collapse in={expandedRows.has(event.id)} animateOpacity>
-                    <Stack spacing={2} fontSize="sm">
-                      <HStack>
-                        <Text color="gray.600" fontWeight="semibold">Event ID:</Text>
-                        <Text fontFamily="mono">{event.eventId}</Text>
-                      </HStack>
-                      <HStack>
-                        <Text color="gray.600" fontWeight="semibold">Created:</Text>
-                        <Text>{formatTimestamp(event.created_at)}</Text>
-                      </HStack>
-                      <HStack>
-                        <Text color="gray.600" fontWeight="semibold">Full Sender:</Text>
-                        <Text fontFamily="mono" fontSize="xs">{event.senderNpub}</Text>
-                      </HStack>
-                      {event.receiverNpub && (
-                        <HStack>
-                          <Text color="gray.600" fontWeight="semibold">Full Recipient:</Text>
-                          <Text fontFamily="mono" fontSize="xs">{event.receiverNpub}</Text>
-                        </HStack>
-                      )}
-                    </Stack>
+                    <Table size="sm" variant="simple">
+                      <Tbody>
+                        <Tr>
+                          <Td color="gray.600" width="30%">Event ID</Td>
+                          <Td fontWeight="semibold">id</Td>
+                          <Td fontFamily="mono" fontSize="xs">{event.eventId}</Td>
+                        </Tr>
+                        <Tr>
+                          <Td color="gray.600">Timestamp</Td>
+                          <Td fontWeight="semibold">created_at</Td>
+                          <Td>{formatTimestamp(event.created_at)}</Td>
+                        </Tr>
+                        <Tr>
+                          <Td color="gray.600">Event kind</Td>
+                          <Td fontWeight="semibold">kind</Td>
+                          <Td>{event.eventKind}</Td>
+                        </Tr>
+                        <Tr>
+                          <Td color="gray.600">Sender</Td>
+                          <Td fontWeight="semibold">pubkey</Td>
+                          <Td fontFamily="mono" fontSize="xs">{event.senderNpub}</Td>
+                        </Tr>
+                        {event.receiverNpub && (
+                          <Tr>
+                            <Td color="gray.600">Recipient</Td>
+                            <Td fontWeight="semibold">p</Td>
+                            <Td fontFamily="mono" fontSize="xs">{event.receiverNpub}</Td>
+                          </Tr>
+                        )}
+                        {event.dTag && (
+                          <Tr>
+                            <Td color="gray.600">Addressable identifier</Td>
+                            <Td fontWeight="semibold">d</Td>
+                            <Td>{event.dTag}</Td>
+                          </Tr>
+                        )}
+                        <Tr>
+                          <Td color="gray.600">Geohash location</Td>
+                          <Td fontWeight="semibold">g</Td>
+                          <Td fontFamily="mono">{event.geohash}</Td>
+                        </Tr>
+                        {event.tags?.accuracy && (
+                          <Tr>
+                            <Td color="gray.600">Location accuracy (meters)</Td>
+                            <Td fontWeight="semibold">accuracy</Td>
+                            <Td>{event.tags.accuracy}</Td>
+                          </Tr>
+                        )}
+                        {event.name && (
+                          <Tr>
+                            <Td color="gray.600">Location name</Td>
+                            <Td fontWeight="semibold">name</Td>
+                            <Td>{event.name}</Td>
+                          </Tr>
+                        )}
+                        {event.expiry && (
+                          <Tr>
+                            <Td color="gray.600">Expiration</Td>
+                            <Td fontWeight="semibold">expiration</Td>
+                            <Td>{formatExpiry(event.expiry)}</Td>
+                          </Tr>
+                        )}
+                        {event.tags?.t && Array.isArray(event.tags.t) && event.tags.t.length > 0 && (
+                          <Tr>
+                            <Td color="gray.600">Hashtags</Td>
+                            <Td fontWeight="semibold">t</Td>
+                            <Td>
+                              <HStack spacing={1} wrap="wrap">
+                                {event.tags.t.map((tag: string, idx: number) => (
+                                  <Badge key={idx} colorScheme="gray" size="sm">#{tag}</Badge>
+                                ))}
+                              </HStack>
+                            </Td>
+                          </Tr>
+                        )}
+                        {/* Show any other custom tags */}
+                        {event.tags && Object.entries(event.tags)
+                          .filter(([key]) => !['accuracy', 't', 'g', 'name', 'expiration'].includes(key))
+                          .map(([key, value]) => (
+                            <Tr key={key}>
+                              <Td color="gray.600"></Td>
+                              <Td fontWeight="semibold">{key}</Td>
+                              <Td>{String(value)}</Td>
+                            </Tr>
+                          ))
+                        }
+                      </Tbody>
+                    </Table>
                   </Collapse>
                 </Td>
               </Tr>

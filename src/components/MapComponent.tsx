@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, IconButton, Tooltip, Input, HStack, useToast, Badge } from '@chakra-ui/react'
+import { Box, IconButton, Tooltip, Input, HStack, useToast, Badge, Button } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 import { generateGeohash, decodeGeohash } from '../utils/crypto'
 import { getGeolocationImplementation } from '../utils/locationSimulator'
 import { ShareLocationPopup } from './ShareLocationPopup'
+import { continuousSharingService, ContinuousSharingState } from '../services/continuousSharingService'
 
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css'
@@ -151,6 +152,7 @@ export function MapComponent() {
   const userLocationMarkerRef = useRef<L.Rectangle | null>(null)
   const userLocationCenterRef = useRef<L.Marker | null>(null)
   const firstLocationReceived = useRef(false)
+  const [continuousSharingState, setContinuousSharingState] = useState<ContinuousSharingState>(continuousSharingService.getCurrentState())
   const toast = useToast()
 
   // Copy to clipboard with toast notification
@@ -205,6 +207,27 @@ export function MapComponent() {
   useEffect(() => {
     const locationsSub = mapService.getLocations().subscribe(setLocations)
     return () => locationsSub.unsubscribe()
+  }, [])
+
+  // Subscribe to continuous sharing state
+  useEffect(() => {
+    const subscription = continuousSharingService.getState().subscribe(state => {
+      setContinuousSharingState(state)
+
+      // Update geohash input when sharing
+      if (state.isSharing && state.currentGeohash) {
+        setGeohashInput(state.currentGeohash)
+      }
+
+      // Update share status
+      if (state.isSharing) {
+        setShareStatus({ type: 'sent', count: state.eventCount })
+      } else {
+        setShareStatus(null)
+      }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   // Subscribe to focused location changes
@@ -522,6 +545,16 @@ export function MapComponent() {
     setShowShareModal(true)
   }
 
+  const handleStopSharing = () => {
+    continuousSharingService.stopContinuousSharing()
+    toast({
+      title: 'Stopped sharing',
+      description: 'Location sharing has been stopped',
+      status: 'info',
+      duration: 2000,
+    })
+  }
+
   const handleStatusChange = (status: { type: 'sending' | 'sent' | 'error' | 'waiting', count?: number, message?: string }) => {
     setShareStatus(status)
 
@@ -591,21 +624,34 @@ export function MapComponent() {
               placeholder="Geohash"
               value={geohashInput}
               onChange={handleGeohashChange}
-              isDisabled={isQueryingLocation}
+              isDisabled={isQueryingLocation || continuousSharingState.isSharing}
               size="sm"
               width="150px"
               fontFamily="mono"
             />
           </Tooltip>
-          <Tooltip label="Share location">
-            <IconButton
-              aria-label="Share Location"
-              icon={<span>📤</span>}
-              size="sm"
-              onClick={handleShareLocation}
-              variant="outline"
-            />
-          </Tooltip>
+          {continuousSharingState.isSharing ? (
+            <Tooltip label="Stop sharing location">
+              <Button
+                size="sm"
+                colorScheme="red"
+                onClick={handleStopSharing}
+                leftIcon={<span>🛑</span>}
+              >
+                Stop
+              </Button>
+            </Tooltip>
+          ) : (
+            <Tooltip label="Share location">
+              <IconButton
+                aria-label="Share Location"
+                icon={<span>📤</span>}
+                size="sm"
+                onClick={handleShareLocation}
+                variant="outline"
+              />
+            </Tooltip>
+          )}
           <Tooltip label={isQueryingLocation ? 'Stop tracking' : 'Track location'}>
             <IconButton
               aria-label="Query Location"
@@ -614,6 +660,7 @@ export function MapComponent() {
               onClick={toggleLocationQuery}
               colorScheme={locationButtonColor}
               variant={isQueryingLocation ? 'solid' : 'outline'}
+              isDisabled={continuousSharingState.isSharing}
             />
           </Tooltip>
           {getStatusBadge()}

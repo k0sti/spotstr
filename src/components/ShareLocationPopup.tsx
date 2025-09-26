@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Modal,
   ModalOverlay,
@@ -27,6 +27,7 @@ import { useContacts } from '../hooks/useContacts'
 import { generateGeohash, npubToHex } from '../utils/crypto'
 import { getGeolocationImplementation } from '../utils/locationSimulator'
 import { createLocationEvent, signAndPublishLocationEvent } from '../utils/locationEvents'
+import { continuousSharingService } from '../services/continuousSharingService'
 
 interface ShareLocationPopupProps {
   isOpen: boolean
@@ -50,13 +51,7 @@ export function ShareLocationPopup({
   const [geohash, setGeohash] = useState(initialGeohash)
   const [selectedSender, setSelectedSender] = useState('')
   const [selectedReceiver, setSelectedReceiver] = useState('')
-  const [isPublishing, setIsPublishing] = useState(false)
-  const [eventCount, setEventCount] = useState(0)
-
-  const watchIdRef = useRef<number | null>(null)
-  const intervalIdRef = useRef<number | null>(null)
-  const isPublishingRef = useRef(false)
-  const isCancelledRef = useRef(false)
+  const [continuousSharingState, setContinuousSharingState] = useState(continuousSharingService.getCurrentState())
 
   // Set initial geohash when prop changes
   useEffect(() => {
@@ -83,71 +78,77 @@ export function ShareLocationPopup({
     }
   }, [groups, contacts, selectedReceiver])
 
-  // Cleanup on unmount
+  // Subscribe to continuous sharing state
   useEffect(() => {
-    return () => {
-      stopContinuousLocationUpdates()
-    }
-  }, [])
+    const subscription = continuousSharingService.getState().subscribe(state => {
+      setContinuousSharingState(state)
 
-  const startContinuousLocationUpdates = () => {
-    const geolocation = getGeolocationImplementation()
-
-    if (!geolocation) {
-      toast({
-        title: 'Location not supported',
-        description: 'Your browser does not support geolocation',
-        status: 'error',
-        duration: 3000,
-      })
-      return
-    }
-
-    // Start watching position
-    watchIdRef.current = geolocation.watchPosition(
-      (position) => {
-        const hash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
-        setGeohash(hash)
-      },
-      (error) => {
-        console.error('[Location Error]', error)
-        onStatusChange?.({ type: 'error', message: error.message })
-        toast({
-          title: 'Location Error',
-          description: error.message,
-          status: 'error',
-          duration: 3000,
-        })
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
+      // Update status when sharing
+      if (state.isSharing && state.eventCount > 0) {
+        onStatusChange?.({ type: 'sent', count: state.eventCount })
       }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [onStatusChange])
+
+  const publishLocationWithGeohash = async (geohash: string): Promise<void> => {
+    if (!selectedSender || !selectedReceiver) {
+      throw new Error('Missing sender or receiver')
+    }
+
+    if (connectedRelays.length === 0) {
+      throw new Error('No relays connected')
+    }
+
+    // Get sender account
+    const senderAccount = accounts.find(acc => acc.pubkey === selectedSender)
+    if (!senderAccount) {
+      throw new Error('Sender account not found')
+    }
+
+    // Get receiver's public key
+    let receiverPublicKey: string
+    if (selectedReceiver.startsWith('group:')) {
+      const groupId = selectedReceiver.slice(6)
+      const group = groups.find(g => g.id === groupId)
+      if (!group) {
+        throw new Error('Group not found')
+      }
+      receiverPublicKey = npubToHex(group.npub)
+    } else if (selectedReceiver.startsWith('contact:')) {
+      const contactId = selectedReceiver.slice(8)
+      const contact = contacts.find(c => c.id === contactId)
+      if (!contact) {
+        throw new Error('Contact not found')
+      }
+      receiverPublicKey = contact.pubkey
+    } else {
+      throw new Error('Invalid receiver')
+    }
+
+    // Create location event with 1 minute expiry for real-time sharing
+    const { unsignedEvent } = await createLocationEvent({
+      senderAccount,
+      receiverPublicKey,
+      geohash,
+      locationName: 'real-time', // Always use 'real-time' for d-tag
+      expirySeconds: 60, // 1 minute expiry
+      isPublic: false
+    })
+
+    // Sign and publish
+    onStatusChange?.({ type: 'sending' })
+
+    const result = await signAndPublishLocationEvent(
+      unsignedEvent,
+      senderAccount.signer,
+      connectedRelays,
+      publishLocationEvent
     )
 
-    // Publish location immediately
-    publishLocation()
-
-    // Then publish every 30 seconds
-    intervalIdRef.current = window.setInterval(() => {
-      if (geohash && !isPublishingRef.current && !isCancelledRef.current) {
-        publishLocation()
-      }
-    }, 30000)
-  }
-
-  const stopContinuousLocationUpdates = () => {
-    isCancelledRef.current = true
-
-    if (watchIdRef.current !== null) {
-      const geolocation = getGeolocationImplementation()
-      geolocation.clearWatch(watchIdRef.current)
-      watchIdRef.current = null
-    }
-    if (intervalIdRef.current !== null) {
-      window.clearInterval(intervalIdRef.current)
-      intervalIdRef.current = null
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to publish')
     }
   }
 
@@ -192,19 +193,8 @@ export function ShareLocationPopup({
     )
   }
 
-  const publishLocation = async () => {
-    if (isCancelledRef.current) return
 
-    if (!geohash) {
-      toast({
-        title: 'Geohash required',
-        description: 'Please enter a geohash or query device location',
-        status: 'warning',
-        duration: 3000,
-      })
-      return
-    }
-
+  const handleStartSharing = () => {
     if (!selectedSender || !selectedReceiver) {
       toast({
         title: 'Missing information',
@@ -225,111 +215,38 @@ export function ShareLocationPopup({
       return
     }
 
-    try {
-      isPublishingRef.current = true
-      setIsPublishing(true)
-      onStatusChange?.({ type: 'waiting' })
-
-      // Get sender account
-      const senderAccount = accounts.find(acc => acc.pubkey === selectedSender)
-      if (!senderAccount) {
-        throw new Error('Sender account not found')
+    // Start continuous sharing
+    const success = continuousSharingService.startContinuousSharing(
+      selectedSender,
+      selectedReceiver,
+      publishLocationWithGeohash,
+      () => {
+        onStatusChange?.({ type: 'sent', count: continuousSharingService.getCurrentState().eventCount })
       }
+    )
 
-      // Get receiver's public key
-      let receiverPublicKey: string
-      if (selectedReceiver.startsWith('group:')) {
-        const groupId = selectedReceiver.slice(6)
-        const group = groups.find(g => g.id === groupId)
-        if (!group) {
-          throw new Error('Group not found')
-        }
-        receiverPublicKey = npubToHex(group.npub)
-      } else if (selectedReceiver.startsWith('contact:')) {
-        const contactId = selectedReceiver.slice(8)
-        const contact = contacts.find(c => c.id === contactId)
-        if (!contact) {
-          throw new Error('Contact not found')
-        }
-        receiverPublicKey = contact.pubkey
-      } else {
-        throw new Error('Invalid receiver')
-      }
-
-      // Create location event with 1 minute expiry for real-time sharing
-      const { unsignedEvent } = await createLocationEvent({
-        senderAccount,
-        receiverPublicKey,
-        geohash,
-        locationName: 'real-time', // Always use 'real-time' for d-tag
-        expirySeconds: 60, // 1 minute expiry
-        isPublic: false
-      })
-
-      // Sign and publish
-      onStatusChange?.({ type: 'sending' })
-
-      const result = await signAndPublishLocationEvent(
-        unsignedEvent,
-        senderAccount.signer,
-        connectedRelays,
-        publishLocationEvent
-      )
-
-      if (result.success) {
-        const newCount = eventCount + 1
-        setEventCount(newCount)
-        onStatusChange?.({ type: 'sent', count: newCount })
-
-        // Flash success
-        setTimeout(() => {
-          if (!isCancelledRef.current) {
-            onStatusChange?.({ type: 'sent', count: newCount })
-          }
-        }, 500)
-      } else {
-        throw new Error(result.error || 'Failed to publish')
-      }
-    } catch (error) {
-      console.error('Failed to publish location:', error)
-      onStatusChange?.({ type: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
-
+    if (success) {
       toast({
-        title: 'Failed to share location',
-        description: error instanceof Error ? error.message : 'Unknown error occurred',
-        status: 'error',
-        duration: 5000,
+        title: 'Continuous sharing started',
+        description: 'Location will be sent when geohash changes',
+        status: 'info',
+        duration: 3000,
       })
-    } finally {
-      isPublishingRef.current = false
-      setIsPublishing(false)
+
+      // Close the modal but keep sharing
+      onClose()
+    } else {
+      toast({
+        title: 'Failed to start sharing',
+        description: 'Geolocation is not supported',
+        status: 'error',
+        duration: 3000,
+      })
     }
-  }
-
-  const handleShare = async () => {
-    if (isPublishing) {
-      // Cancel if already publishing
-      isCancelledRef.current = true
-      setIsPublishing(false)
-      onStatusChange?.({ type: 'sent', count: eventCount })
-      return
-    }
-
-    isCancelledRef.current = false
-    startContinuousLocationUpdates()
-
-    toast({
-      title: 'Continuous sharing started',
-      description: 'Location will be updated every 30 seconds',
-      status: 'info',
-      duration: 3000,
-    })
   }
 
   const handleClose = () => {
-    stopContinuousLocationUpdates()
-    setEventCount(0)
-    isCancelledRef.current = false
+    // Just close modal, don't stop sharing
     onClose()
   }
 
@@ -451,19 +368,17 @@ export function ShareLocationPopup({
           <Button
             colorScheme="blue"
             mr={3}
-            onClick={handleShare}
-            isLoading={isPublishing}
-            loadingText="Cancel"
+            onClick={handleStartSharing}
             isDisabled={
-              !geohash ||
               !selectedSender ||
               !selectedReceiver ||
               accounts.length === 0 ||
               (groups.length === 0 && contacts.length === 0) ||
-              connectedRelays.length === 0
+              connectedRelays.length === 0 ||
+              continuousSharingState.isSharing
             }
           >
-            Share
+            {continuousSharingState.isSharing ? 'Sharing Active' : 'Start Sharing'}
           </Button>
           <Button variant="ghost" onClick={handleClose}>
             Close
