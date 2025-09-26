@@ -8,6 +8,7 @@ import { GroupsPage } from './components/GroupsPage'
 import { MapComponent } from './components/MapComponent'
 import { useNostr } from './hooks/useNostr'
 import { AccountsProvider } from 'applesauce-react'
+import { useAccounts } from 'applesauce-react/hooks'
 import accounts from './services/accounts'
 import { groupsManager } from './services/groups'
 // import theme from './theme'
@@ -27,9 +28,15 @@ type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' 
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageType>(null)
-  const { connectedRelays } = useNostr()
+  const { connectedRelays, setAccounts } = useNostr()
+  const accountsList = useAccounts()
   const toast = useToast()
   const isConnected = connectedRelays.length > 0
+
+  // Automatically sync accounts with NostrService for decryption
+  useEffect(() => {
+    setAccounts(accountsList)
+  }, [accountsList, setAccounts])
 
   const handlePageClick = (page: PageType) => {
     // Toggle off if clicking the currently active page
@@ -39,6 +46,17 @@ function AppContent() {
       setCurrentPage(page)
     }
   }
+
+  // Also trigger decryption when groups change
+  useEffect(() => {
+    const subscription = groupsManager.groups$.subscribe(() => {
+      // Re-trigger decryption when groups change
+      if (accountsList.length > 0) {
+        setAccounts(accountsList)
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [accountsList, setAccounts])
 
   // Check for group import in URL query parameters
   useEffect(() => {

@@ -56,7 +56,7 @@ export function LocationsPage({ onClose: onPageClose }: LocationsPageProps = {})
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
   const { isOpen: isHelpOpen, onOpen: onHelpOpen, onClose: onHelpClose } = useDisclosure()
-  const { locationEvents, clearAllLocations, decryptLocationEvents } = useNostr()
+  const { locationEvents, clearAllLocations } = useNostr()
   const accounts = useAccounts()
   const { groups } = useGroups()
   const toast = useToast()
@@ -101,20 +101,8 @@ export function LocationsPage({ onClose: onPageClose }: LocationsPageProps = {})
     return profiles.get(pubkey)
   }
 
-  // Decrypt location events when accounts or groups are available or when new events arrive
-  useEffect(() => {
-    if (accounts.length > 0 || groups.length > 0) {
-      // Initial decryption with both accounts and groups
-      decryptLocationEvents(accounts)
-    }
-  }, [accounts, groups, decryptLocationEvents])
-
-  // Also trigger decryption when location events change
-  useEffect(() => {
-    if ((accounts.length > 0 || groups.length > 0) && locationEvents.some(e => e.geohash === 'encrypted')) {
-      decryptLocationEvents(accounts)
-    }
-  }, [locationEvents, accounts, groups, decryptLocationEvents])
+  // Decryption is now handled automatically in useNostr hook
+  // No need to manually trigger decryption here
 
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp * 1000).toLocaleString()

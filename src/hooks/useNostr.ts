@@ -16,6 +16,8 @@ class NostrApplesauceService {
   private updateCallbacks: Set<() => void> = new Set()
   private activeSubscriptions: Map<string, any> = new Map()
   private newEncryptedEventCallbacks: Set<() => void> = new Set()
+  private currentAccounts: any[] = []
+  private pendingDecryptions: Set<string> = new Set()
 
   constructor() {
     this.loadFromStorage()
@@ -129,7 +131,7 @@ class NostrApplesauceService {
     if (event.kind === 30472) {
       this.processPublicLocationEvent(event)
     } else if (event.kind === 30473) {
-      this.processPrivateLocationEvent(event)
+      await this.processPrivateLocationEvent(event)
     }
   }
 
@@ -159,9 +161,18 @@ class NostrApplesauceService {
     }
 
     this.addLocationEvent(locationEvent)
+
+    // Attempt immediate decryption if accounts are available
+    if (this.currentAccounts.length > 0 && !this.pendingDecryptions.has(addressableId)) {
+      this.pendingDecryptions.add(addressableId)
+      setTimeout(() => {
+        this.decryptSingleEvent(addressableId)
+        this.pendingDecryptions.delete(addressableId)
+      }, 100) // Small delay to batch multiple events
+    }
   }
 
-  private processPrivateLocationEvent(event: any) {
+  private async processPrivateLocationEvent(event: any) {
     const senderNpub = event.pubkey ? nip19.npubEncode(event.pubkey) : ''
     const dTag = event.tags?.find((t: any) => t[0] === 'd')?.[1] || ''
     const recipientPubkey = event.tags?.find((t: any) => t[0] === 'p')?.[1]
@@ -209,8 +220,108 @@ class NostrApplesauceService {
     return tagObj
   }
 
+  // Set accounts for automatic decryption
+  setAccounts(accounts: any[]) {
+    this.currentAccounts = accounts
+    // Trigger decryption of any existing encrypted events
+    if (accounts.length > 0) {
+      this.decryptLocationEvents(accounts)
+    }
+  }
+
+  // Decrypt a single event by its addressable ID
+  async decryptSingleEvent(addressableId: string) {
+    const event = this.locationEvents.find(e => e.id === addressableId)
+    if (!event || event.geohash !== 'encrypted' || !event.encryptedContent) {
+      return
+    }
+
+    const groups = groupsManager.groups$.value
+    let decrypted = false
+
+    // Try to decrypt with accounts
+    for (const account of this.currentAccounts) {
+      try {
+        const accountNpub = nip19.npubEncode(account.pubkey)
+        if (event.receiverNpub !== accountNpub) {
+          continue
+        }
+
+        if (account.signer.nip44?.decrypt) {
+          const senderPubkey = nip19.decode(event.senderNpub).data as string
+          const decryptedContent = await account.signer.nip44.decrypt(
+            senderPubkey,
+            event.encryptedContent
+          )
+
+          const decryptedTags = JSON.parse(decryptedContent)
+          const allTags = this.extractAllTags(decryptedTags)
+
+          // Update the event in place
+          const index = this.locationEvents.findIndex(e => e.id === addressableId)
+          if (index !== -1) {
+            this.locationEvents[index] = {
+              ...event,
+              geohash: allTags.g || '',
+              tags: allTags,
+              name: allTags.title || allTags.name || event.dTag || undefined,
+            }
+            decrypted = true
+            break
+          }
+        }
+      } catch (error) {
+        console.error('Failed to decrypt with account:', error)
+      }
+    }
+
+    // Try with groups if not decrypted
+    if (!decrypted) {
+      for (const group of groups) {
+        try {
+          if (event.receiverNpub !== group.npub) {
+            continue
+          }
+
+          const senderPubkey = nip19.decode(event.senderNpub).data as string
+          const groupSecretKey = nip19.decode(group.nsec).data as Uint8Array
+          const conversationKey = nip44.v2.utils.getConversationKey(
+            groupSecretKey,
+            senderPubkey
+          )
+          const decryptedContent = nip44.v2.decrypt(event.encryptedContent, conversationKey)
+          const decryptedTags = JSON.parse(decryptedContent)
+          const allTags = this.extractAllTags(decryptedTags)
+
+          // Update the event in place
+          const index = this.locationEvents.findIndex(e => e.id === addressableId)
+          if (index !== -1) {
+            this.locationEvents[index] = {
+              ...event,
+              geohash: allTags.g || '',
+              tags: allTags,
+              name: allTags.title || allTags.name || event.dTag || undefined,
+            }
+            decrypted = true
+            break
+          }
+        } catch (error) {
+          console.error('Failed to decrypt with group:', error)
+        }
+      }
+    }
+
+    if (decrypted) {
+      this.saveToStorage('locationEvents', this.locationEvents)
+      mapService.updateLocations(this.locationEvents)
+      this.notifyUpdate()
+    }
+  }
+
   // Decrypt location events using available accounts and groups
   async decryptLocationEvents(accounts: any[]) {
+    // Store accounts for future automatic decryption
+    this.currentAccounts = accounts
     const updatedEvents: LocationEvent[] = []
     let hasUpdates = false
     const groups = groupsManager.groups$.value
@@ -460,6 +571,7 @@ export function useNostr() {
     disconnectAll: () => nostrService.disconnectAll(),
     clearAllLocations: () => nostrService.clearAllLocations(),
     decryptLocationEvents: (accounts: any[]) => nostrService.decryptLocationEvents(accounts),
+    setAccounts: (accounts: any[]) => nostrService.setAccounts(accounts),
   }
 }
 
