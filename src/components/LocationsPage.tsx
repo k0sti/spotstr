@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react'
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import {
   Box,
   Button,
@@ -36,7 +36,9 @@ import {
   TabList,
   TabPanels,
   Tab,
-  TabPanel
+  TabPanel,
+  Select,
+  ButtonGroup
 } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 import { useAccounts } from 'applesauce-react/hooks'
@@ -57,6 +59,13 @@ export function LocationsPage() {
   const cancelRef = useRef(null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [selectedTab, setSelectedTab] = useState(0)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(50)
+
+  // Reset pagination when switching tabs
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedTab])
 
   // Collect all unique npubs from location events
   const allNpubs = useMemo(() => {
@@ -130,7 +139,7 @@ export function LocationsPage() {
     }
   }
 
-  const toggleRow = (eventId: string) => {
+  const toggleRow = useCallback((eventId: string) => {
     setExpandedRows(prev => {
       const newSet = new Set(prev)
       if (newSet.has(eventId)) {
@@ -140,7 +149,7 @@ export function LocationsPage() {
       }
       return newSet
     })
-  }
+  }, [])
 
   // Get my npubs (from accounts and groups)
   const myNpubs = useMemo(() => {
@@ -188,8 +197,18 @@ export function LocationsPage() {
     return { shared, contacts, publicEvents, encrypted }
   }, [locationEvents, myNpubs])
 
-  // Render location table component
-  const LocationTable = ({ events, emptyMessage }: { events: typeof locationEvents, emptyMessage: string }) => {
+  // Render location table component - memoized to prevent unnecessary re-renders
+  const LocationTable = React.memo(({
+    events,
+    emptyMessage,
+    expandedRows,
+    onToggleRow
+  }: {
+    events: typeof locationEvents
+    emptyMessage: string
+    expandedRows: Set<string>
+    onToggleRow: (eventId: string) => void
+  }) => {
     if (events.length === 0) {
       return (
         <Box p={8} textAlign="center">
@@ -198,8 +217,73 @@ export function LocationsPage() {
       )
     }
 
+    // Calculate pagination
+    const totalPages = Math.ceil(events.length / itemsPerPage)
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    const paginatedEvents = events.slice(startIndex, endIndex)
+
     return (
-      <Table size="sm" variant="simple">
+      <>
+        {/* Pagination controls */}
+        {events.length > 50 && (
+          <HStack justify="space-between" mb={3} p={2} bg="gray.50" borderRadius="md">
+            <HStack spacing={2}>
+              <Text fontSize="sm" color="gray.600">Show:</Text>
+              <Select
+                size="sm"
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value))
+                  setCurrentPage(1)
+                }}
+                width="100px"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </Select>
+              <Text fontSize="sm" color="gray.600">
+                of {events.length} total
+              </Text>
+            </HStack>
+
+            <HStack spacing={2}>
+              <ButtonGroup size="sm" isAttached variant="outline">
+                <IconButton
+                  aria-label="First page"
+                  icon={<span>⏮</span>}
+                  onClick={() => setCurrentPage(1)}
+                  isDisabled={currentPage === 1}
+                />
+                <IconButton
+                  aria-label="Previous page"
+                  icon={<span>◀</span>}
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  isDisabled={currentPage === 1}
+                />
+                <Button variant="solid" colorScheme="gray" size="sm" cursor="default">
+                  {currentPage} / {totalPages}
+                </Button>
+                <IconButton
+                  aria-label="Next page"
+                  icon={<span>▶</span>}
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  isDisabled={currentPage === totalPages}
+                />
+                <IconButton
+                  aria-label="Last page"
+                  icon={<span>⏭</span>}
+                  onClick={() => setCurrentPage(totalPages)}
+                  isDisabled={currentPage === totalPages}
+                />
+              </ButtonGroup>
+            </HStack>
+          </HStack>
+        )}
+
+        <Table size="sm" variant="simple">
         <Thead>
           <Tr>
             <Th width="30px"></Th>
@@ -210,12 +294,12 @@ export function LocationsPage() {
           </Tr>
         </Thead>
         <Tbody>
-          {events.map((event) => (
+          {paginatedEvents.map((event) => (
             <React.Fragment key={event.id}>
               <Tr
                 cursor="pointer"
                 _hover={{ bg: 'gray.50' }}
-                onClick={() => toggleRow(event.id)}
+                onClick={() => onToggleRow(event.id)}
               >
                 <Td>
                   <Text fontSize="xs" transform={expandedRows.has(event.id) ? 'rotate(90deg)' : 'none'} transition="transform 0.2s">
@@ -377,8 +461,32 @@ export function LocationsPage() {
           ))}
         </Tbody>
       </Table>
-    )
-  }
+
+      {/* Bottom pagination */}
+      {events.length > itemsPerPage && (
+        <HStack justify="center" mt={3}>
+          <ButtonGroup size="sm" isAttached variant="outline">
+            <IconButton
+              aria-label="Previous page"
+              icon={<span>◀</span>}
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              isDisabled={currentPage === 1}
+            />
+            <Button variant="solid" colorScheme="gray" size="sm" cursor="default">
+              Page {currentPage} of {totalPages}
+            </Button>
+            <IconButton
+              aria-label="Next page"
+              icon={<span>▶</span>}
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              isDisabled={currentPage === totalPages}
+            />
+          </ButtonGroup>
+        </HStack>
+      )}
+    </>
+  )
+  })
 
   return (
     <Box>
@@ -449,28 +557,44 @@ export function LocationsPage() {
 
         <TabPanels>
           <TabPanel px={0}>
-            <LocationTable
-              events={categorizedEvents.shared}
-              emptyMessage="No locations shared by you yet"
-            />
+            {selectedTab === 0 && (
+              <LocationTable
+                events={categorizedEvents.shared}
+                emptyMessage="No locations shared by you yet"
+                expandedRows={expandedRows}
+                onToggleRow={toggleRow}
+              />
+            )}
           </TabPanel>
           <TabPanel px={0}>
-            <LocationTable
-              events={categorizedEvents.contacts}
-              emptyMessage="No locations shared to you yet"
-            />
+            {selectedTab === 1 && (
+              <LocationTable
+                events={categorizedEvents.contacts}
+                emptyMessage="No locations shared to you yet"
+                expandedRows={expandedRows}
+                onToggleRow={toggleRow}
+              />
+            )}
           </TabPanel>
           <TabPanel px={0}>
-            <LocationTable
-              events={categorizedEvents.publicEvents}
-              emptyMessage="No public location events"
-            />
+            {selectedTab === 2 && (
+              <LocationTable
+                events={categorizedEvents.publicEvents}
+                emptyMessage="No public location events"
+                expandedRows={expandedRows}
+                onToggleRow={toggleRow}
+              />
+            )}
           </TabPanel>
           <TabPanel px={0}>
-            <LocationTable
-              events={categorizedEvents.encrypted}
-              emptyMessage="No encrypted events awaiting decryption"
-            />
+            {selectedTab === 3 && (
+              <LocationTable
+                events={categorizedEvents.encrypted}
+                emptyMessage="No encrypted events awaiting decryption"
+                expandedRows={expandedRows}
+                onToggleRow={toggleRow}
+              />
+            )}
           </TabPanel>
         </TabPanels>
       </Tabs>

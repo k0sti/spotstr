@@ -11,7 +11,7 @@ import { continuousSharingService, ContinuousSharingState } from '../services/co
 import 'leaflet/dist/leaflet.css'
 
 // Create custom marker icons for public and private events
-const createMarkerIcon = (color: string) => L.divIcon({
+const createMarkerIcon = (color: string, glow: boolean = false) => L.divIcon({
   html: `
     <div style="
       background: ${color};
@@ -19,7 +19,7 @@ const createMarkerIcon = (color: string) => L.divIcon({
       border-radius: 50%;
       width: 12px;
       height: 12px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      box-shadow: ${glow ? '0 0 12px 4px rgba(255,255,255,0.9), 0 2px 4px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.3)'};
     "></div>
   `,
   className: 'custom-marker',
@@ -30,6 +30,7 @@ const createMarkerIcon = (color: string) => L.divIcon({
 
 const publicIcon = createMarkerIcon('#2563eb') // blue
 const privateIcon = createMarkerIcon('#dc2626') // red
+const whiteGlowIcon = createMarkerIcon('#ffffff', true) // white with glow for new/updated
 
 // Helper function to create popup HTML with styled badges and copy functionality
 const createPopupContent = (location: MapLocation): string => {
@@ -153,6 +154,7 @@ export function MapComponent() {
   const userLocationCenterRef = useRef<L.Marker | null>(null)
   const firstLocationReceived = useRef(false)
   const [continuousSharingState, setContinuousSharingState] = useState<ContinuousSharingState>(continuousSharingService.getCurrentState())
+  const previousLocationsMap = useRef<Map<string, { timestamp: number, geohash: string }>>(new Map())
   const toast = useToast()
 
   // Copy to clipboard with toast notification
@@ -264,6 +266,20 @@ export function MapComponent() {
   useEffect(() => {
     if (!mapRef.current) return
 
+    // Identify new or updated locations
+    const newOrUpdatedLocationIds = new Set<string>()
+
+    locations.forEach(location => {
+      const previousData = previousLocationsMap.current.get(location.id)
+
+      // Check if this is a new location or if it has been updated
+      if (!previousData ||
+          previousData.timestamp !== location.event.created_at ||
+          previousData.geohash !== location.event.geohash) {
+        newOrUpdatedLocationIds.add(location.id)
+      }
+    })
+
     // Clear existing rectangles, markers, and circles
     rectanglesRef.current.forEach(rect => {
       rect.remove()
@@ -287,7 +303,8 @@ export function MapComponent() {
       // Determine colors based on event kind
       const isPublic = location.event.eventKind === 30472
       const rectangleColor = isPublic ? '#2563eb' : '#dc2626' // blue for public, red for private
-      const markerIcon = isPublic ? publicIcon : privateIcon
+      const defaultIcon = isPublic ? publicIcon : privateIcon
+      const isNewOrUpdated = newOrUpdatedLocationIds.has(location.id)
 
       // Add rectangle for the geohash bounds
       const rectangle = L.rectangle(bounds, {
@@ -299,10 +316,21 @@ export function MapComponent() {
       })
         .addTo(mapRef.current!)
 
-      // Add marker at the center of the location with appropriate icon
-      const marker = L.marker([location.lat, location.lng], { icon: markerIcon })
+      // Add marker at the center of the location - start with white glow if new or updated
+      const marker = L.marker([location.lat, location.lng], {
+        icon: isNewOrUpdated ? whiteGlowIcon : defaultIcon
+      })
         .addTo(mapRef.current!)
         .bindPopup(createPopupContent(location))
+
+      // Animate from white to default color if new or updated location
+      if (isNewOrUpdated) {
+        setTimeout(() => {
+          if (marker) {
+            marker.setIcon(defaultIcon)
+          }
+        }, 500)
+      }
 
       // Add accuracy circle if accuracy is available
       let accuracyCircle = null
@@ -322,12 +350,21 @@ export function MapComponent() {
 
       // Store rectangle reference for highlighting
       rectanglesRef.current.set(location.id, rectangle)
-      
+
       // Store marker and accuracy circle with rectangle so they're removed together
       ;(rectangle as any)._associatedMarker = marker
       if (accuracyCircle) {
         ;(rectangle as any)._associatedCircle = accuracyCircle
       }
+    })
+
+    // Update previous locations map for next comparison
+    previousLocationsMap.current.clear()
+    locations.forEach(location => {
+      previousLocationsMap.current.set(location.id, {
+        timestamp: location.event.created_at,
+        geohash: location.event.geohash
+      })
     })
   }, [locations])
 
