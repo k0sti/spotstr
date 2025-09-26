@@ -143,6 +143,7 @@ export function MapComponent() {
   const mapRef = useRef<L.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const rectanglesRef = useRef<Map<string, L.Rectangle>>(new Map())
+  const markersRef = useRef<Map<string, L.Marker>>(new Map())
   const [locations, setLocations] = useState<MapLocation[]>([])
   const [isQueryingLocation, setIsQueryingLocation] = useState(false)
   const watchIdRef = useRef<number | null>(null)
@@ -262,6 +263,22 @@ export function MapComponent() {
     return () => focusSub.unsubscribe()
   }, [])
 
+  // Subscribe to popup location changes
+  useEffect(() => {
+    const popupSub = mapService.getPopupLocation().subscribe(locationId => {
+      if (locationId) {
+        const marker = markersRef.current.get(locationId)
+        if (marker) {
+          // Small delay to ensure map has focused first
+          setTimeout(() => {
+            marker.openPopup()
+          }, 600)
+        }
+      }
+    })
+    return () => popupSub.unsubscribe()
+  }, [])
+
   // Update rectangles and markers when locations change
   useEffect(() => {
     if (!mapRef.current) return
@@ -310,6 +327,8 @@ export function MapComponent() {
         }
         rectanglesRef.current.delete(id)
       }
+      // Also remove from markers ref
+      markersRef.current.delete(id)
     })
 
     // Update existing markers that changed
@@ -332,6 +351,7 @@ export function MapComponent() {
           (rect as any)._associatedCircle.remove()
         }
         rectanglesRef.current.delete(id)
+        markersRef.current.delete(id)
 
         // Add the updated marker (it will be added in the next section)
         toAdd.add(id)
@@ -407,6 +427,9 @@ export function MapComponent() {
 
       // Store rectangle reference for highlighting
       rectanglesRef.current.set(location.id, rectangle)
+
+      // Store marker reference for popup control
+      markersRef.current.set(location.id, marker)
 
       // Store marker and accuracy circle with rectangle so they're removed together
       ;(rectangle as any)._associatedMarker = marker
@@ -615,9 +638,51 @@ export function MapComponent() {
 
         userLocationCenterRef.current = L.marker([decoded.lat, decoded.lng], { icon: greenIcon })
           .addTo(mapRef.current)
+          .bindPopup(`
+            <div style="font-family: -apple-system, system-ui, sans-serif; min-width: 180px;">
+              <div style="font-weight: bold; margin-bottom: 8px;">Your Location</div>
+              <div style="margin-bottom: 6px;">
+                <span style="
+                  background: #10b981;
+                  color: white;
+                  padding: 2px 6px;
+                  border-radius: 4px;
+                  font-size: 11px;
+                  font-weight: 500;
+                  margin-right: 4px;
+                ">Current</span>
+                <span onclick="window.mapCopyToClipboard('${geohashInput}', 'Geohash')" style="
+                  background: #6b7280;
+                  color: white;
+                  padding: 2px 6px;
+                  border-radius: 4px;
+                  font-size: 11px;
+                  cursor: pointer;
+                " title="Click to copy">${geohashInput}</span>
+              </div>
+              <div style="font-size: 12px; color: #6b7280;">
+                Lat: ${decoded.lat.toFixed(6)}, Lng: ${decoded.lng.toFixed(6)}
+              </div>
+              ${continuousSharingState.isSharing ? `
+                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb;">
+                  <span style="
+                    background: #ef4444;
+                    color: white;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 500;
+                  ">Sharing Active</span>
+                  <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">
+                    Sent: ${continuousSharingState.eventCount} updates
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `)
 
-        // Focus map on this location if user typed it (not from location query)
-        if (!isQueryingLocation) {
+        // Focus map on this location if user typed it (not from location query or continuous sharing)
+        if (!isQueryingLocation && !continuousSharingState.isSharing) {
           // Fit the map to show the entire geohash rectangle with some padding
           mapRef.current.fitBounds(bounds, {
             animate: true,
@@ -627,7 +692,7 @@ export function MapComponent() {
         }
       }
     }
-  }, [geohashInput, isQueryingLocation])
+  }, [geohashInput, isQueryingLocation, continuousSharingState.isSharing])
 
   const handleGeohashChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isQueryingLocation) {

@@ -280,12 +280,6 @@ export function ShareLocationPopup({
               </HStack>
             </FormControl>
 
-            <Box p={2} bg="blue.50" borderRadius="md">
-              <Text fontSize="sm" color="blue.800">
-                Continuous location sharing with 1-minute expiry. Updates every 30 seconds.
-              </Text>
-            </Box>
-
             <FormControl>
               <FormLabel fontSize="sm">From</FormLabel>
               <Select

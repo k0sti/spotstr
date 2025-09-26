@@ -78,7 +78,7 @@ function AppContent() {
       case 'groups':
         return <GroupsPage />
       case 'locations':
-        return <LocationsPage />
+        return <LocationsPage onClose={() => setCurrentPage(null)} />
       case 'settings':
         return <SettingsPage />
       default:

@@ -48,7 +48,11 @@ import { mapService } from '../services/mapService'
 import { AddLocationModal } from './AddLocationModal'
 import * as nip19 from 'nostr-tools/nip19'
 
-export function LocationsPage() {
+interface LocationsPageProps {
+  onClose?: () => void
+}
+
+export function LocationsPage({ onClose: onPageClose }: LocationsPageProps = {}) {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const { isOpen: isResetOpen, onOpen: onResetOpen, onClose: onResetClose } = useDisclosure()
   const { isOpen: isHelpOpen, onOpen: onHelpOpen, onClose: onHelpClose } = useDisclosure()
@@ -315,11 +319,12 @@ export function LocationsPage() {
                   onClick={(e) => {
                     e.stopPropagation()
                     if (event.geohash !== 'encrypted') {
-                      mapService.focusLocation(event.id)
+                      mapService.focusLocationAndOpenPopup(event.id)
+                      onPageClose?.()
                       toast({
-                        title: 'Map focused',
-                        description: `Focused on location: ${event.name || event.dTag || 'unnamed'}`,
-                        status: 'info',
+                        title: 'Opening location',
+                        description: `Opening popup for: ${event.name || event.dTag || 'unnamed'}`,
+                        status: 'success',
                         duration: 2000,
                       })
                     }
