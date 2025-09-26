@@ -22,8 +22,20 @@ export function getProfileRelays(): string[] {
 }
 
 // Fetch profile for a given pubkey using applesauce
-export async function fetchProfile(pubkey: string): Promise<any> {
+export async function fetchProfile(pubkey: string, useCache = true): Promise<any> {
   try {
+    // Import cache manager
+    const { profileCacheManager } = await import('../services/profileCache')
+
+    // Check cache first if enabled
+    if (useCache) {
+      const cached = profileCacheManager.getProfile(pubkey)
+      if (cached) {
+        console.log(`Using cached profile for ${pubkey}`)
+        return cached
+      }
+    }
+
     const relays = getProfileRelays()
 
     // Import necessary modules
@@ -78,6 +90,12 @@ export async function fetchProfile(pubkey: string): Promise<any> {
           const profile = getProfileContent(mostRecent)
           if (profile) {
             console.log('Found profile for', pubkey, 'from', relayUrl)
+
+            // Cache the profile
+            if (useCache) {
+              profileCacheManager.setProfile(pubkey, profile)
+            }
+
             return profile
           }
         }

@@ -79,7 +79,7 @@ function IdentityRow({ account, onDelete, customName, onUpdateCustomName }: {
 
   return (
     <Tr>
-      <Td>
+      <Td py={1} px={1}>
         <IdentityDisplay
           pubkey={account.pubkey}
           metadata={account.metadata}
@@ -87,7 +87,7 @@ function IdentityRow({ account, onDelete, customName, onUpdateCustomName }: {
           onUpdateCustomName={(name) => onUpdateCustomName(account.pubkey, name)}
         />
       </Td>
-      <Td>
+      <Td py={1} px={2}>
         <KeyDisplay
           pubkey={account.pubkey}
           secretKey={secretKey}
@@ -95,7 +95,7 @@ function IdentityRow({ account, onDelete, customName, onUpdateCustomName }: {
           badge={badge}
         />
       </Td>
-      <Td>
+      <Td py={1} px={2}>
         <IconButton
           size="xs"
           aria-label="Delete identity"
@@ -434,9 +434,9 @@ export function IdentitiesPage() {
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
-            <Th>Profile</Th>
-            <Th>Key</Th>
-            <Th>Actions</Th>
+            <Th py={1} px={2}>Profile</Th>
+            <Th py={1} px={2}>Key</Th>
+            <Th py={1} px={2}>Actions</Th>
           </Tr>
         </Thead>
         <Tbody>

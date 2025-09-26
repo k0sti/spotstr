@@ -105,9 +105,18 @@ class ContactsManager {
 
   public async refreshAllProfiles() {
     const contacts = this.contacts$.value
+    const { profileCacheManager } = await import('../services/profileCache')
+
     for (const contact of contacts) {
-      // Only refresh if no metadata or missing profile picture
-      if (!contact.metadata || !contact.metadata.picture) {
+      // Check cache first
+      const cached = profileCacheManager.getProfile(contact.pubkey)
+      if (cached) {
+        // Update from cache if different
+        if (!contact.metadata || JSON.stringify(contact.metadata) !== JSON.stringify(cached)) {
+          this.updateContact(contact.npub, { metadata: cached })
+        }
+      } else if (!contact.metadata || !contact.metadata.picture) {
+        // Only fetch from network if not in cache and missing data
         await this.fetchAndUpdateProfile(contact.npub, contact.pubkey)
       }
     }

@@ -44,7 +44,7 @@ function GroupRow({ group, onDelete, onShare, onCopyShareUrl, customName, onUpda
 
   return (
     <Tr>
-      <Td>
+      <Td py={1} px={2}>
         <IdentityDisplay
           pubkey={pubkey}
           metadata={{ picture: group.metadata?.picture }}
@@ -52,10 +52,10 @@ function GroupRow({ group, onDelete, onShare, onCopyShareUrl, customName, onUpda
           onUpdateCustomName={(name) => onUpdateCustomName(group.id, name)}
         />
       </Td>
-      <Td>
+      <Td py={1} px={2}>
         <KeyDisplay pubkey={pubkey} secretKey={group.nsec} />
       </Td>
-      <Td>
+      <Td py={1} px={2}>
         <HStack spacing={1}>
           <Tooltip label="Copy share URL">
             <IconButton
@@ -220,9 +220,9 @@ export function GroupsPage() {
       <Table size="sm" variant="simple">
         <Thead>
           <Tr>
-            <Th>Profile</Th>
-            <Th>Key</Th>
-            <Th>Actions</Th>
+            <Th py={1} px={2}>Profile</Th>
+            <Th py={1} px={2}>Key</Th>
+            <Th py={1} px={2}>Actions</Th>
           </Tr>
         </Thead>
         <Tbody>
