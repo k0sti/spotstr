@@ -10,7 +10,7 @@ import { useNostr } from './hooks/useNostr'
 import { AccountsProvider } from 'applesauce-react'
 import accounts from './services/accounts'
 import { groupsManager } from './services/groups'
-import theme from './theme'
+// import theme from './theme'
 import {
   Box,
   Flex,
@@ -102,7 +102,7 @@ function AppContent() {
           bg="gray.100" 
           shadow="md" 
           zIndex="1000"
-          p={4}
+          p={2}
         >
           <Flex justify="space-between" align="center">
             <HStack spacing={3}>
@@ -137,67 +137,39 @@ function AppContent() {
               </Tooltip>
             </HStack>
             
-            <HStack spacing={2}>
-              <Tooltip label="Identities" placement="bottom">
-                <IconButton
-                  aria-label="Identities"
-                  icon={<span>👤</span>}
-                  size="sm"
-                  onClick={() => handlePageClick('identities')}
-                  variant={currentPage === 'identities' ? 'solid' : 'outline'}
-                />
-              </Tooltip>
-              <Tooltip label="Groups" placement="bottom">
-                <IconButton
-                  aria-label="Groups"
-                  icon={<span>👥</span>}
-                  size="sm"
-                  onClick={() => handlePageClick('groups')}
-                  variant={currentPage === 'groups' ? 'solid' : 'outline'}
-                />
-              </Tooltip>
-              <Tooltip label="Contacts" placement="bottom">
-                <IconButton
-                  aria-label="Contacts"
-                  icon={<span>🔗</span>}
-                  size="sm"
-                  onClick={() => handlePageClick('contacts')}
-                  variant={currentPage === 'contacts' ? 'solid' : 'outline'}
-                />
-              </Tooltip>
-              <Tooltip label="Locations" placement="bottom">
-                <IconButton
-                  aria-label="Locations"
-                  icon={<span>📍</span>}
-                  size="sm"
-                  onClick={() => handlePageClick('locations')}
-                  variant={currentPage === 'locations' ? 'solid' : 'outline'}
-                />
-              </Tooltip>
-              <Tooltip label="Settings" placement="bottom">
-                <IconButton
-                  aria-label="Settings"
-                  icon={<span>⚙️</span>}
-                  size="sm"
-                  onClick={() => handlePageClick('settings')}
-                  variant={currentPage === 'settings' ? 'solid' : 'outline'}
-                />
-              </Tooltip>
+            <HStack spacing={0}>
+              {[
+                { page: 'identities' as const, label: 'Identities', icon: '👤' },
+                { page: 'groups' as const, label: 'Groups', icon: '👥' },
+                { page: 'contacts' as const, label: 'Contacts', icon: '🔗' },
+                { page: 'locations' as const, label: 'Locations', icon: '📍' },
+                { page: 'settings' as const, label: 'Settings', icon: '⚙️' },
+              ].map(({ page, label, icon }) => (
+                <Tooltip key={page} label={label} placement="bottom">
+                  <IconButton
+                    aria-label={label}
+                    icon={<span style={{ fontSize: '1.5rem' }}>{icon}</span>}
+                    size="md"
+                    onClick={() => handlePageClick(page)}
+                    variant={currentPage === page ? 'solid' : 'outline'}
+                  />
+                </Tooltip>
+              ))}
               <Tooltip label="View on GitHub" placement="bottom">
                 <Link href="https://github.com/k0sti/spotstr" isExternal>
                   <IconButton
                     aria-label="GitHub Repository"
                     icon={
                       <svg
-                        width="16"
-                        height="16"
+                        width="24"
+                        height="24"
                         viewBox="0 0 24 24"
                         fill="currentColor"
                       >
                         <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
                       </svg>
                     }
-                    size="sm"
+                    size="md"
                     variant="outline"
                   />
                 </Link>
@@ -231,7 +203,7 @@ function AppContent() {
 
 export function App() {
   return (
-    <ChakraProvider theme={theme}>
+    <ChakraProvider>
       <AccountsProvider manager={accounts}>
         <AppContent />
       </AccountsProvider>

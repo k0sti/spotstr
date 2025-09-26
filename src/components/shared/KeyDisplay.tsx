@@ -22,7 +22,7 @@ export function KeyDisplay({ pubkey, secretKey, showPrivateKey = true, badge }: 
 
   const npubShort = useMemo(() => {
     if (npubFull.startsWith('npub')) {
-      return `${npubFull.slice(4, 11)}...${npubFull.slice(-6)}`
+      return `${npubFull.slice(4, 10)}...${npubFull.slice(-6)}`
     }
     return `${npubFull.slice(0, 8)}...`
   }, [npubFull])
