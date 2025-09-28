@@ -9,8 +9,6 @@ type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' 
 interface TopBarProps {
   currentPage: PageType
   onPageClick: (page: PageType) => void
-  isConnected: boolean
-  connectedRelays: string[]
 }
 
 interface NavItem {
@@ -19,7 +17,7 @@ interface NavItem {
   icon: IconType
 }
 
-export function TopBar({ currentPage, onPageClick, isConnected, connectedRelays }: TopBarProps) {
+export function TopBar({ currentPage, onPageClick }: TopBarProps) {
   const bgColor = useColorModeValue('rgba(255, 255, 255, 0.9)', 'rgba(26, 32, 44, 0.85)')
   const textColor = useColorModeValue('gray.800', 'white')
   const borderColor = useColorModeValue('rgba(0, 0, 0, 0.1)', 'rgba(255, 255, 255, 0.1)')

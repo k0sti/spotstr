@@ -24,10 +24,9 @@ type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' 
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageType>(null)
-  const { connectedRelays, setAccounts } = useNostr()
+  const { setAccounts } = useNostr()
   const accountsList = useAccounts()
   const toast = useToast()
-  const isConnected = connectedRelays.length > 0
   const modalBg = useColorModeValue('white', 'gray.800')
 
   // Location-related state
@@ -159,8 +158,6 @@ function AppContent() {
         <TopBar
           currentPage={currentPage}
           onPageClick={handlePageClick}
-          isConnected={isConnected}
-          connectedRelays={connectedRelays}
         />
 
         {/* Floating Location Bar */}
