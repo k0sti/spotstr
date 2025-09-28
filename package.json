@@ -9,11 +9,13 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "android:build": "bun run build && bunx cap sync android",
+    "icons:generate": "node scripts/generate-icons.js",
+    "prebuild": "bun run icons:generate",
+    "android:build": "bun run icons:generate && bun run build && bunx cap sync android",
     "android:run": "bunx cap run android",
     "android:open": "bunx cap open android",
     "android:sync": "bunx cap sync android",
-    "android:apk": "bun run build && bunx cap sync android && cd android && ./gradlew assembleDebug && echo 'APK built at: android/app/build/outputs/apk/debug/app-debug.apk'"
+    "android:apk": "bun run icons:generate && bun run build && bunx cap sync android && cd android && ./gradlew assembleDebug && echo 'APK built at: android/app/build/outputs/apk/debug/app-debug.apk'"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
@@ -49,6 +51,7 @@
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
     "jsdom": "^27.0.0",
+    "sharp": "^0.34.4",
     "typescript": "^5.2.2",
     "vite": "^5.0.8",
     "vitest": "^1.0.4"
