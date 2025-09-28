@@ -1,5 +1,5 @@
 {
-  description = "Spotstr Android development environment";
+  description = "Spotstr development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -14,11 +14,11 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
+            nodejs_20
+            bun
             jdk21
             android-tools
             gradle
-            nodejs_20
-            bun
           ];
 
           shellHook = ''
@@ -27,11 +27,17 @@
             export ANDROID_HOME="$HOME/Android/Sdk"
             export PATH="$PATH:$ANDROID_HOME/platform-tools"
 
-            echo "Development environment loaded:"
-            echo "  Java: $(java -version 2>&1 | head -n 1)"
-            echo "  Gradle: $(gradle --version | head -n 3 | tail -n 1)"
+            echo "Spotstr Development Environment"
             echo "  Node: $(node --version)"
             echo "  Bun: $(bun --version)"
+            echo "  Java: $(java -version 2>&1 | head -n 1)"
+            echo ""
+            echo "Commands:"
+            echo "  bun run dev          - Start development server"
+            echo "  bun run build        - Build production bundle"
+            echo "  bun run android:apk  - Build Android APK"
+            echo "  bun run android:run  - Run on Android device"
+            echo "  bun test             - Run tests"
           '';
         };
       });

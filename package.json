@@ -12,7 +12,8 @@
     "android:build": "bun run build && bunx cap sync android",
     "android:run": "bunx cap run android",
     "android:open": "bunx cap open android",
-    "android:sync": "bunx cap sync android"
+    "android:sync": "bunx cap sync android",
+    "android:apk": "bun run build && bunx cap sync android && cd android && ./gradlew assembleDebug && echo 'APK built at: android/app/build/outputs/apk/debug/app-debug.apk'"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
