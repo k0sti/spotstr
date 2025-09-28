@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Box, useColorMode, useToast } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
@@ -401,27 +401,30 @@ export function MapView({
     }
   }, [geohashInput, isQueryingLocation, shouldFocusGeohash, toast])
 
+  // Create a stable callback for location updates
+  const handleLocationUpdate = useCallback((position: any) => {
+    if (position) {
+      const geohash = generateGeohash(
+        position.coords.latitude,
+        position.coords.longitude,
+        8
+      )
+      onLocationUpdate(geohash)
+
+      // Center map on current location
+      if (mapRef.current) {
+        mapRef.current.setView(
+          [position.coords.latitude, position.coords.longitude],
+          18
+        )
+      }
+    }
+  }, [onLocationUpdate])
+
   // Handle location tracking
   useEffect(() => {
     if (isQueryingLocation) {
-      LocationService.startWatching((position) => {
-        if (position) {
-          const geohash = generateGeohash(
-            position.coords.latitude,
-            position.coords.longitude,
-            8
-          )
-          onLocationUpdate(geohash)
-
-          // Center map on current location
-          if (mapRef.current) {
-            mapRef.current.setView(
-              [position.coords.latitude, position.coords.longitude],
-              18
-            )
-          }
-        }
-      })
+      LocationService.startWatching(handleLocationUpdate)
       watchIdRef.current = 'watching'
     } else {
       if (watchIdRef.current) {
@@ -433,9 +436,10 @@ export function MapView({
     return () => {
       if (watchIdRef.current) {
         LocationService.stopWatching()
+        watchIdRef.current = null
       }
     }
-  }, [isQueryingLocation, onLocationUpdate])
+  }, [isQueryingLocation, handleLocationUpdate])
 
   // Handle focus events from mapService
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { ChakraProvider, ColorModeScript, useColorModeValue } from '@chakra-ui/react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import theme from './theme'
 import { safeAreaService } from './services/safeAreaService'
 import { IdentitiesPage } from './components/IdentitiesPage'
@@ -7,6 +7,7 @@ import { LocationsPage } from './components/LocationsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { ContactsPage } from './components/ContactsPage'
 import { GroupsPage } from './components/GroupsPage'
+import { RelayConfigPage } from './components/RelayConfigPage'
 import { MapView } from './components/MapView'
 import { TopBar } from './components/TopBar'
 import { LocationBar } from './components/LocationBar'
@@ -19,7 +20,7 @@ import { groupsManager } from './services/groups'
 import { continuousSharingService, ContinuousSharingState } from './services/continuousSharingService'
 import { Box, useToast } from '@chakra-ui/react'
 
-type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' | null
+type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' | 'relays' | null
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageType>(null)
@@ -52,12 +53,17 @@ function AppContent() {
 
   // Also trigger decryption when groups change
   useEffect(() => {
-    const updateGroups = () => {
-      console.log('[App] Groups updated, triggering decryption attempt for new groups')
-      setAccounts(accountsList)
-    }
+    let previousGroupsLength = groupsManager.groups$.value.length
 
-    const subscription = groupsManager.groups$.subscribe(updateGroups)
+    const subscription = groupsManager.groups$.subscribe((groups) => {
+      // Only trigger setAccounts if the number of groups actually changed
+      if (groups.length !== previousGroupsLength) {
+        console.log('[App] Groups actually changed, triggering decryption attempt for new groups')
+        previousGroupsLength = groups.length
+        setAccounts(accountsList)
+      }
+    })
+
     return () => subscription.unsubscribe()
   }, [accountsList, setAccounts])
 
@@ -101,12 +107,12 @@ function AppContent() {
     })
   }
 
-  const handleLocationUpdate = (geohash: string) => {
+  const handleLocationUpdate = useCallback((geohash: string) => {
     setGeohashInput(geohash)
     // Blink yellow then back to blue for updates
     setLocationButtonColor('yellow')
     setTimeout(() => setLocationButtonColor('blue'), 200)
-  }
+  }, [])
 
   const [manualGeohashFocus, setManualGeohashFocus] = useState(false)
 
@@ -130,7 +136,9 @@ function AppContent() {
       case 'locations':
         return <LocationsPage onClose={() => setCurrentPage(null)} />
       case 'settings':
-        return <SettingsPage />
+        return <SettingsPage onNavigate={(page) => setCurrentPage(page as PageType)} />
+      case 'relays':
+        return <RelayConfigPage />
       default:
         return null
     }

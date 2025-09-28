@@ -1,8 +1,10 @@
-import { Box, Flex, Text, IconButton, HStack, Tooltip, Circle, useColorModeValue, Image } from '@chakra-ui/react'
-import { FaUsers, FaUser, FaCog, FaMapMarkedAlt, FaUserFriends } from 'react-icons/fa'
+import { Box, Flex, Text, IconButton, HStack, VStack, Tooltip, Circle, useColorModeValue, Image } from '@chakra-ui/react'
+import { FaUsers, FaUser, FaCog, FaMapMarkedAlt, FaUserFriends, FaNetworkWired } from 'react-icons/fa'
 import { IconType } from 'react-icons'
+import { useEffect, useState } from 'react'
+import { useRelayService } from '../services/relayService'
 
-type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' | null
+type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' | 'relays' | null
 
 interface TopBarProps {
   currentPage: PageType
@@ -23,6 +25,21 @@ export function TopBar({ currentPage, onPageClick, isConnected, connectedRelays 
   const borderColor = useColorModeValue('rgba(0, 0, 0, 0.1)', 'rgba(255, 255, 255, 0.1)')
   const buttonColor = useColorModeValue('gray.600', 'gray.300')
   const hoverBg = useColorModeValue('rgba(0, 0, 0, 0.05)', 'rgba(255, 255, 255, 0.1)')
+
+  const relayService = useRelayService()
+  const [locationRelaysConnected, setLocationRelaysConnected] = useState(false)
+  const [profileRelaysConnected, setProfileRelaysConnected] = useState(false)
+
+  useEffect(() => {
+    const subscription = relayService.relayStatus$.subscribe(() => {
+      const locationRelays = relayService.getConnectedRelays('location')
+      const profileRelays = relayService.getConnectedRelays('profile')
+      setLocationRelaysConnected(locationRelays.length > 0)
+      setProfileRelaysConnected(profileRelays.length > 0)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [relayService])
 
   const navItems: NavItem[] = [
     { page: 'identities', label: 'Identities', icon: FaUser },
@@ -80,17 +97,44 @@ export function TopBar({ currentPage, onPageClick, isConnected, connectedRelays 
             </Tooltip>
           ))}
 
-          <Tooltip
-            label={isConnected ? `Connected to ${connectedRelays.length} relay(s)` : 'Not connected'}
-            placement="bottom"
-          >
-            <Circle
-              size="8px"
-              bg={isConnected ? 'green.400' : 'red.400'}
-              ml={2}
-              boxShadow={isConnected ? '0 0 8px rgba(72, 187, 120, 0.6)' : '0 0 8px rgba(245, 101, 101, 0.6)'}
-            />
-          </Tooltip>
+          <VStack spacing={1} ml={2}>
+            <Tooltip
+              label={
+                <Box>
+                  <Text fontSize="xs">Location relays: {locationRelaysConnected ? 'Connected' : 'Disconnected'}</Text>
+                  <Text fontSize="xs">Profile relays: {profileRelaysConnected ? 'Connected' : 'Disconnected'}</Text>
+                </Box>
+              }
+              placement="bottom"
+            >
+              <HStack spacing={1}>
+                <Circle
+                  size="8px"
+                  bg={locationRelaysConnected ? 'green.400' : 'gray.400'}
+                  boxShadow={locationRelaysConnected ? '0 0 6px rgba(72, 187, 120, 0.6)' : 'none'}
+                />
+                <Circle
+                  size="8px"
+                  bg={profileRelaysConnected ? 'green.400' : 'gray.400'}
+                  boxShadow={profileRelaysConnected ? '0 0 6px rgba(72, 187, 120, 0.6)' : 'none'}
+                />
+              </HStack>
+            </Tooltip>
+
+            <Tooltip label="Configure Relays" placement="bottom">
+              <IconButton
+                aria-label="Configure Relays"
+                icon={<FaNetworkWired />}
+                onClick={() => onPageClick('relays')}
+                colorScheme={currentPage === 'relays' ? 'blue' : 'gray'}
+                variant={currentPage === 'relays' ? 'solid' : 'ghost'}
+                size="xs"
+                fontSize="14px"
+                color={currentPage === 'relays' ? textColor : buttonColor}
+                _hover={{ bg: hoverBg }}
+              />
+            </Tooltip>
+          </VStack>
         </HStack>
       </Flex>
     </Box>

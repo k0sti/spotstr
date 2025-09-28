@@ -4,3 +4,6 @@ task
 dist/
 CLAUDE.md
 .direnv/
+
+# generated
+ic_launcher*.png

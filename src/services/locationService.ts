@@ -1,5 +1,6 @@
 import { Geolocation, Position } from '@capacitor/geolocation';
 import { Capacitor } from '@capacitor/core';
+import { getGeolocationImplementation } from '../utils/locationSimulator';
 
 export class LocationService {
   private static watchId: string | null = null;
@@ -69,13 +70,15 @@ export class LocationService {
 
   private static async getWebPosition(): Promise<Position | null> {
     return new Promise((resolve) => {
-      if (!navigator.geolocation) {
+      const geolocation = getGeolocationImplementation();
+
+      if (!geolocation) {
         console.error('[LocationService] Geolocation not supported');
         resolve(null);
         return;
       }
 
-      navigator.geolocation.getCurrentPosition(
+      geolocation.getCurrentPosition(
         (position) => {
           const capacitorPosition: Position = {
             timestamp: position.timestamp,
@@ -107,6 +110,12 @@ export class LocationService {
 
   static async startWatching(callback: (position: Position | null) => void) {
     console.log('[LocationService] Starting location watch...');
+
+    // Check if already watching
+    if (this.watchId !== null) {
+      console.log('[LocationService] Already watching with ID:', this.watchId, '- stopping previous watch first');
+      await this.stopWatching();
+    }
 
     if (!Capacitor.isNativePlatform()) {
       console.log('[LocationService] Using web watch API');
@@ -146,13 +155,21 @@ export class LocationService {
     }
   }
 
-  private static startWebWatch(callback: (position: Position | null) => void) {
-    if (!navigator.geolocation) {
+  private static async startWebWatch(callback: (position: Position | null) => void) {
+    // Check if already watching - important for web too
+    if (this.watchId !== null) {
+      console.log('[LocationService] Already watching (web) with ID:', this.watchId, '- stopping previous watch first');
+      await this.stopWatching();
+    }
+
+    const geolocation = getGeolocationImplementation();
+
+    if (!geolocation) {
       console.error('[LocationService] Geolocation not supported for watching');
       return;
     }
 
-    const watchId = navigator.geolocation.watchPosition(
+    const watchId = geolocation.watchPosition(
       (position) => {
         const capacitorPosition: Position = {
           timestamp: position.timestamp,
@@ -180,19 +197,27 @@ export class LocationService {
     );
 
     this.watchId = watchId.toString();
+    console.log('[LocationService] Web watch started with ID:', this.watchId);
   }
 
   static async stopWatching() {
-    console.log('[LocationService] Stopping location watch...');
+    console.log('[LocationService] Stopping location watch with ID:', this.watchId);
 
     if (this.watchId) {
       if (!Capacitor.isNativePlatform()) {
-        navigator.geolocation.clearWatch(parseInt(this.watchId));
+        const geolocation = getGeolocationImplementation();
+        if (geolocation) {
+          const watchIdNum = parseInt(this.watchId);
+          console.log('[LocationService] Clearing web watch with numeric ID:', watchIdNum);
+          geolocation.clearWatch(watchIdNum);
+        }
       } else {
         await Geolocation.clearWatch({ id: this.watchId });
       }
       this.watchId = null;
-      console.log('[LocationService] Watch stopped');
+      console.log('[LocationService] Watch stopped and ID cleared');
+    } else {
+      console.log('[LocationService] No watch ID to stop');
     }
   }
 }

@@ -1,27 +1,30 @@
 import { useState, useEffect, useMemo } from 'react'
 import { EventStore } from 'applesauce-core'
-import { Relay } from 'applesauce-relay'
+import { onlyEvents } from 'applesauce-relay/operators'
 import * as nip19 from 'nostr-tools/nip19'
 import * as nip44 from 'nostr-tools/nip44'
 import { LocationEvent } from '../types'
 import { mapService } from '../services/mapService'
 import { groupsManager } from '../services/groups'
+import { getRelayService } from '../services/relayService'
+import { Subscription } from 'rxjs'
 
 // Initialize Applesauce EventStore
 const eventStore = new EventStore()
 
 class NostrApplesauceService {
   private locationEvents: LocationEvent[] = []
-  private connectedRelays: Map<string, Relay> = new Map()
+  private relayService = getRelayService()
   private updateCallbacks: Set<() => void> = new Set()
-  private activeSubscriptions: Map<string, any> = new Map()
+  private locationSubscription: Subscription | null = null
   private newEncryptedEventCallbacks: Set<() => void> = new Set()
   private currentAccounts: any[] = []
   private pendingDecryptions: Set<string> = new Set()
 
   constructor() {
     this.loadFromStorage()
-    this.autoConnectToSavedRelay()
+    this.setupLocationSubscriptions()
+    this.autoConnectSavedRelays()
   }
 
 
@@ -47,54 +50,84 @@ class NostrApplesauceService {
   }
 
   getConnectedRelays(): string[] {
-    return Array.from(this.connectedRelays.keys())
+    return this.relayService.getConnectedRelays('location')
   }
 
   isRelayConnected(relayUrl: string): boolean {
-    return this.connectedRelays.has(relayUrl)
+    const configs = this.relayService.getRelayConfigs('location')
+    return configs.some(c => c.url === relayUrl && c.status === 'connected')
   }
 
-  // Relay connection management using Applesauce
-  async connectToRelay(relayUrl: string) {
-    try {
-      // Close existing subscription if any
-      const existingSub = this.activeSubscriptions.get(relayUrl)
-      if (existingSub) {
-        existingSub.unsubscribe()
+  // Setup subscriptions to location relays
+  private setupLocationSubscriptions() {
+    // Clean up existing subscription
+    if (this.locationSubscription) {
+      this.locationSubscription.unsubscribe()
+    }
+
+    // Subscribe to relay status changes
+    // Only update subscriptions when relay connections actually change
+    let lastConnectedRelays: string[] = []
+    this.relayService.relayStatus$.subscribe(() => {
+      const currentConnectedRelays = this.relayService.getConnectedRelays('location')
+
+      // Only update if the connected relays have changed
+      const hasChanged = currentConnectedRelays.length !== lastConnectedRelays.length ||
+        currentConnectedRelays.some(r => !lastConnectedRelays.includes(r))
+
+      if (hasChanged) {
+        lastConnectedRelays = [...currentConnectedRelays]
+        this.updateLocationSubscriptions()
       }
+    })
+  }
 
-      // Create new relay connection
-      const relay = new Relay(relayUrl)
+  private updateLocationSubscriptions() {
+    // Clean up existing subscription
+    if (this.locationSubscription) {
+      this.locationSubscription.unsubscribe()
+      this.locationSubscription = null
+    }
 
-      // Store the relay connection
-      this.connectedRelays.set(relayUrl, relay)
+    // Get location relay group
+    const locationGroup = this.relayService.getLocationGroup()
+    if (!locationGroup) {
+      console.log('No connected location relays')
+      return
+    }
 
-      // Create subscription for location events (both public and private)
-      const filter = {
-        kinds: [30472, 30473],
-        // limit: 1000  // Increased from 100 to fetch more events
-      }
+    // Create subscription for location events
+    const filter = {
+      kinds: [30472, 30473],
+    }
 
-      // Subscribe to events using req method which returns an Observable
-      const sub = relay.req([filter]).subscribe({
-        next: (response: any) => {
-          if (response === 'EOSE') {
-            console.log('End of stored events from', relayUrl)
-          } else if (response.kind) {
-            // It's an event
-            eventStore.add(response)
-            this.processLocationEvent(response)
+    this.locationSubscription = locationGroup
+      .req([filter])
+      .pipe(onlyEvents())
+      .subscribe({
+        next: (event: any) => {
+          // Track stats
+          const relays = this.relayService.getConnectedRelays('location')
+          if (relays.length > 0) {
+            this.relayService.updateStats(relays[0], 'received')
           }
+
+          eventStore.add(event)
+          this.processLocationEvent(event)
         },
         error: (error: any) => {
           console.error('Subscription error:', error)
         }
       })
 
-      this.activeSubscriptions.set(relayUrl, sub)
-      localStorage.setItem('spotstr_relayUrl', relayUrl)
-      this.notifyUpdate()
+    console.log('Subscribed to location events from relay group')
+  }
 
+  // Relay connection management (delegate to relay service)
+  async connectToRelay(relayUrl: string) {
+    try {
+      await this.relayService.connectRelay(relayUrl, 'location')
+      this.notifyUpdate()
       return true
     } catch (error) {
       console.error('Failed to connect to relay:', error)
@@ -102,22 +135,35 @@ class NostrApplesauceService {
     }
   }
 
-  // Publish location event using Applesauce
+  // Publish location event using RelayPool
   async publishLocationEvent(eventTemplate: any, relayUrls: string[], signer: any) {
     try {
       // Sign the event using the provided signer
       const signedEvent = await signer.signEvent(eventTemplate)
 
-      // Publish to relays
-      const publishPromises = relayUrls.map(url => {
-        const relay = this.connectedRelays.get(url)
-        if (relay) {
-          return relay.publish(signedEvent)
+      // Use location group if no specific URLs provided
+      if (!relayUrls || relayUrls.length === 0) {
+        const locationGroup = this.relayService.getLocationGroup()
+        if (locationGroup) {
+          const responses = await locationGroup.publish(signedEvent)
+          responses.forEach(resp => {
+            if (resp.ok) {
+              this.relayService.updateStats(resp.from, 'sent')
+            }
+          })
+          console.log('Published event to location group:', signedEvent)
+          return signedEvent
         }
-        return Promise.reject(new Error(`Not connected to relay ${url}`))
-      })
-
-      await Promise.allSettled(publishPromises)
+      } else {
+        // Publish to specific relays
+        const pool = this.relayService.getPool()
+        const responses = await pool.publish(relayUrls, signedEvent)
+        responses.forEach(resp => {
+          if (resp.ok) {
+            this.relayService.updateStats(resp.from, 'sent')
+          }
+        })
+      }
 
       console.log('Published event:', signedEvent)
       return signedEvent
@@ -435,34 +481,16 @@ class NostrApplesauceService {
   }
 
   disconnectRelay(relayUrl: string) {
-    const relay = this.connectedRelays.get(relayUrl)
-    if (relay) {
-      relay.close()
-      this.connectedRelays.delete(relayUrl)
-    }
-
-    const sub = this.activeSubscriptions.get(relayUrl)
-    if (sub) {
-      sub.unsubscribe()
-      this.activeSubscriptions.delete(relayUrl)
-    }
-
+    this.relayService.disconnectRelay(relayUrl)
     this.notifyUpdate()
     console.log(`Disconnected from ${relayUrl}`)
   }
 
   disconnectAll() {
-    this.connectedRelays.forEach((relay, url) => {
-      relay.close()
-      console.log(`Disconnected from ${url}`)
+    const locationRelays = this.relayService.getConnectedRelays('location')
+    locationRelays.forEach(url => {
+      this.relayService.disconnectRelay(url)
     })
-    this.connectedRelays.clear()
-
-    this.activeSubscriptions.forEach((sub) => {
-      sub.unsubscribe()
-    })
-    this.activeSubscriptions.clear()
-
     this.notifyUpdate()
   }
 
@@ -493,15 +521,11 @@ class NostrApplesauceService {
     }
   }
 
-  private async autoConnectToSavedRelay() {
-    const savedRelayUrl = localStorage.getItem('spotstr_relayUrl')
-    if (savedRelayUrl) {
-      try {
-        await this.connectToRelay(savedRelayUrl)
-        console.log('Auto-connected to saved relay:', savedRelayUrl)
-      } catch (error) {
-        console.error('Failed to auto-connect to saved relay:', error)
-      }
+  private async autoConnectSavedRelays() {
+    // Auto-connection is handled by relayService based on saved enabled states
+    const connectedRelays = this.relayService.getConnectedRelays('location')
+    if (connectedRelays.length > 0) {
+      console.log('Auto-connected to saved location relays:', connectedRelays)
     }
   }
 

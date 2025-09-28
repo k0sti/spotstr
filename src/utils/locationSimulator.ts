@@ -114,17 +114,22 @@ class LocationSimulator {
   // Simulate clearWatch
   clearWatch(watchId: number): void {
     console.log('[Simulator] clearWatch called for watchId:', watchId)
+    console.log('[Simulator] Current watch intervals:', Array.from(this.watchIntervals.keys()))
+    console.log('[Simulator] Current watch callbacks:', Array.from(this.watchCallbacks.keys()))
+
     const interval = this.watchIntervals.get(watchId)
     if (interval) {
       clearInterval(interval)
       this.watchIntervals.delete(watchId)
-      console.log('[Simulator] Interval cleared for watchId:', watchId)
+      console.log('[Simulator] Interval cleared successfully for watchId:', watchId)
     } else {
-      console.log('[Simulator] No interval found for watchId:', watchId)
+      console.log('[Simulator] WARNING: No interval found for watchId:', watchId)
+      console.log('[Simulator] Available watchIds:', Array.from(this.watchIntervals.keys()))
     }
 
     this.watchCallbacks.delete(watchId)
     this.errorCallbacks.delete(watchId)
+    console.log('[Simulator] Watch fully cleared for watchId:', watchId)
   }
 }
 
