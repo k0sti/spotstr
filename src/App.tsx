@@ -1,5 +1,6 @@
 import { ChakraProvider } from '@chakra-ui/react'
 import { useState, useEffect } from 'react'
+import { safeAreaService } from './services/safeAreaService'
 import { IdentitiesPage } from './components/IdentitiesPage'
 import { LocationsPage } from './components/LocationsPage'
 import { SettingsPage } from './components/SettingsPage'
@@ -32,6 +33,13 @@ function AppContent() {
   const accountsList = useAccounts()
   const toast = useToast()
   const isConnected = connectedRelays.length > 0
+
+  // Initialize safe area service on mount
+  useEffect(() => {
+    safeAreaService.initialize().catch(error => {
+      console.error('Failed to initialize safe area service:', error)
+    })
+  }, [])
 
   // Automatically sync accounts with NostrService for decryption
   useEffect(() => {
