@@ -26,7 +26,7 @@ import { useNostr } from '../hooks/useNostr'
 import { useGroups } from '../hooks/useGroups'
 import { useContacts } from '../hooks/useContacts'
 import { generateGeohash, npubToHex } from '../utils/crypto'
-import { getGeolocationImplementation } from '../utils/locationSimulator'
+import { LocationService } from '../services/locationService'
 import { createLocationEvent, signAndPublishLocationEvent, parseExpiryTime } from '../utils/locationEvents'
 
 interface AddLocationModalProps {
@@ -66,48 +66,32 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
   }, [accounts, selectedSender])
 
   const queryDeviceLocation = async () => {
-    const geolocation = getGeolocationImplementation()
+    console.log('[AddLocationModal] Querying device location...')
 
-    if (!geolocation) {
+    const position = await LocationService.getCurrentPosition()
+
+    if (position) {
+      const hash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
+      setGeohash(hash)
+
+      // Update accuracy if available
+      if (position.coords.accuracy) {
+        setAccuracy(Math.round(position.coords.accuracy).toString())
+      }
+
       toast({
-        title: 'Location not supported',
-        description: 'Your browser does not support geolocation',
+        title: 'Location obtained',
+        status: 'success',
+        duration: 2000,
+      })
+    } else {
+      toast({
+        title: 'Location error',
+        description: 'Failed to get location. Please check permissions.',
         status: 'error',
         duration: 3000,
       })
-      return
     }
-
-    geolocation.getCurrentPosition(
-      (position) => {
-        const hash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
-        setGeohash(hash)
-
-        // Update accuracy if available
-        if (position.coords.accuracy) {
-          setAccuracy(Math.round(position.coords.accuracy).toString())
-        }
-
-        toast({
-          title: 'Location obtained',
-          status: 'success',
-          duration: 2000,
-        })
-      },
-      (error) => {
-        toast({
-          title: 'Location error',
-          description: error.message,
-          status: 'error',
-          duration: 3000,
-        })
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      }
-    )
   }
 
   const handleAddTag = () => {

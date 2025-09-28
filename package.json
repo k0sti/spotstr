@@ -19,6 +19,7 @@
     "@capacitor/android": "^7.4.3",
     "@capacitor/cli": "^7.4.3",
     "@capacitor/core": "^7.4.3",
+    "@capacitor/geolocation": "^7.1.5",
     "@chakra-ui/react": "2.10.9",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",

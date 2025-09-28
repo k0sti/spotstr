@@ -1,5 +1,5 @@
 import { BehaviorSubject } from 'rxjs'
-import { getGeolocationImplementation } from '../utils/locationSimulator'
+import { LocationService } from './locationService'
 import { generateGeohash } from '../utils/crypto'
 
 export interface ContinuousSharingState {
@@ -8,7 +8,7 @@ export interface ContinuousSharingState {
   receiverId: string | null  // 'group:id' or 'contact:id'
   currentGeohash: string | null
   lastSentGeohash: string | null
-  watchId: number | null
+  watchId: string | null
   intervalId: number | null
   eventCount: number
 }
@@ -36,91 +36,79 @@ class ContinuousSharingService {
     return this.state$.value
   }
 
-  startContinuousSharing(
+  async startContinuousSharing(
     senderPubkey: string,
     receiverId: string,
     onGeohashChange: (geohash: string) => Promise<void>,
     onStopSharing: () => void
   ) {
     // Stop any existing sharing first
-    this.stopContinuousSharing()
+    await this.stopContinuousSharing()
 
     this.onGeohashChange = onGeohashChange
     this.onStopSharing = onStopSharing
 
-    const geolocation = getGeolocationImplementation()
-    if (!geolocation) {
-      console.error('[ContinuousSharingService] Geolocation not supported')
-      return false
-    }
+    console.log('[ContinuousSharingService] Starting continuous location sharing...')
 
     // Start watching position
-    const watchId = geolocation.watchPosition(
-      async (position) => {
-        const geohash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
-
-        const currentState = this.state$.value
-
-        // Update current geohash
-        this.state$.next({
-          ...currentState,
-          currentGeohash: geohash
-        })
-
-        // Send location if geohash changed
-        if (geohash !== currentState.lastSentGeohash) {
-          console.log('[ContinuousSharingService] Geohash changed:', geohash)
-
-          try {
-            await this.onGeohashChange?.(geohash)
-
-            // Update state after successful send
-            this.state$.next({
-              ...this.state$.value,
-              lastSentGeohash: geohash,
-              eventCount: this.state$.value.eventCount + 1
-            })
-          } catch (error) {
-            console.error('[ContinuousSharingService] Failed to send location:', error)
-          }
-        }
-      },
-      (error) => {
-        console.error('[ContinuousSharingService] Location error:', error)
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
+    await LocationService.startWatching(async (position) => {
+      if (!position) {
+        console.error('[ContinuousSharingService] Failed to get position')
+        return
       }
-    )
+      const geohash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
 
-    // Get initial position
-    geolocation.getCurrentPosition(
-      async (position) => {
-        const geohash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
+      const currentState = this.state$.value
 
-        this.state$.next({
-          ...this.state$.value,
-          currentGeohash: geohash
-        })
+      // Update current geohash
+      this.state$.next({
+        ...currentState,
+        currentGeohash: geohash
+      })
 
-        // Send initial location
+      // Send location if geohash changed
+      if (geohash !== currentState.lastSentGeohash) {
+        console.log('[ContinuousSharingService] Geohash changed:', geohash)
+
         try {
           await this.onGeohashChange?.(geohash)
+
+          // Update state after successful send
           this.state$.next({
             ...this.state$.value,
             lastSentGeohash: geohash,
-            eventCount: 1
+            eventCount: this.state$.value.eventCount + 1
           })
         } catch (error) {
-          console.error('[ContinuousSharingService] Failed to send initial location:', error)
+          console.error('[ContinuousSharingService] Failed to send location:', error)
         }
-      },
-      (error) => {
-        console.error('[ContinuousSharingService] Initial location error:', error)
       }
-    )
+    })
+
+    // Get initial position
+    const initialPosition = await LocationService.getCurrentPosition()
+    if (initialPosition) {
+      const geohash = generateGeohash(initialPosition.coords.latitude, initialPosition.coords.longitude, 8)
+
+      this.state$.next({
+        ...this.state$.value,
+        currentGeohash: geohash
+      })
+
+      // Send initial location
+      try {
+        await this.onGeohashChange?.(geohash)
+        this.state$.next({
+          ...this.state$.value,
+          lastSentGeohash: geohash,
+          eventCount: 1
+        })
+      } catch (error) {
+        console.error('[ContinuousSharingService] Failed to send initial location:', error)
+      }
+    } else {
+      console.error('[ContinuousSharingService] Failed to get initial location')
+    }
 
     // Also set up periodic sending (every 30 seconds) in case geohash doesn't change
     const intervalId = window.setInterval(async () => {
@@ -146,7 +134,7 @@ class ContinuousSharingService {
       receiverId,
       currentGeohash: null,
       lastSentGeohash: null,
-      watchId,
+      watchId: 'watching',
       intervalId,
       eventCount: 0
     })
@@ -154,12 +142,11 @@ class ContinuousSharingService {
     return true
   }
 
-  stopContinuousSharing() {
+  async stopContinuousSharing() {
     const currentState = this.state$.value
 
     if (currentState.watchId !== null) {
-      const geolocation = getGeolocationImplementation()
-      geolocation.clearWatch(currentState.watchId)
+      await LocationService.stopWatching()
     }
 
     if (currentState.intervalId !== null) {

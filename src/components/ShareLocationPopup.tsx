@@ -25,7 +25,7 @@ import { useNostr } from '../hooks/useNostr'
 import { useGroups } from '../hooks/useGroups'
 import { useContacts } from '../hooks/useContacts'
 import { generateGeohash, npubToHex } from '../utils/crypto'
-import { getGeolocationImplementation } from '../utils/locationSimulator'
+import { LocationService } from '../services/locationService'
 import { createLocationEvent, signAndPublishLocationEvent } from '../utils/locationEvents'
 import { continuousSharingService } from '../services/continuousSharingService'
 
@@ -153,48 +153,32 @@ export function ShareLocationPopup({
   }
 
   const queryDeviceLocation = async () => {
-    const geolocation = getGeolocationImplementation()
+    console.log('[ShareLocationPopup] Querying device location...')
 
-    if (!geolocation) {
+    const position = await LocationService.getCurrentPosition()
+
+    if (position) {
+      const hash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
+      setGeohash(hash)
+
       toast({
-        title: 'Location not supported',
-        description: 'Your browser does not support geolocation',
+        title: 'Location obtained',
+        status: 'success',
+        duration: 2000,
+      })
+    } else {
+      onStatusChange?.({ type: 'error', message: 'Failed to get location' })
+      toast({
+        title: 'Location error',
+        description: 'Failed to get location. Please check permissions.',
         status: 'error',
         duration: 3000,
       })
-      return
     }
-
-    geolocation.getCurrentPosition(
-      (position) => {
-        const hash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
-        setGeohash(hash)
-
-        toast({
-          title: 'Location obtained',
-          status: 'success',
-          duration: 2000,
-        })
-      },
-      (error) => {
-        onStatusChange?.({ type: 'error', message: error.message })
-        toast({
-          title: 'Location error',
-          description: error.message,
-          status: 'error',
-          duration: 3000,
-        })
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      }
-    )
   }
 
 
-  const handleStartSharing = () => {
+  const handleStartSharing = async () => {
     if (!selectedSender || !selectedReceiver) {
       toast({
         title: 'Missing information',
@@ -216,7 +200,7 @@ export function ShareLocationPopup({
     }
 
     // Start continuous sharing
-    const success = continuousSharingService.startContinuousSharing(
+    const success = await continuousSharingService.startContinuousSharing(
       selectedSender,
       selectedReceiver,
       publishLocationWithGeohash,
