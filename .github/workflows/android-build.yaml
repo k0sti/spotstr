@@ -1,0 +1,91 @@
+name: Android Build
+
+on:
+  # Allow manual triggering
+  workflow_dispatch:
+
+  # Build on push to main branch
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+
+  # Build on pull requests
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Java 21
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+        cache: 'gradle'
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Install dependencies
+      run: bun install
+
+    - name: Generate app icons
+      run: bun run icons:generate
+
+    - name: Build web app
+      run: bun run build
+
+    - name: Sync Capacitor with Android
+      run: bunx cap sync android
+
+    - name: Make gradlew executable
+      run: chmod +x android/gradlew
+
+    - name: Build Debug APK
+      run: |
+        cd android
+        ./gradlew assembleDebug
+
+    - name: Upload Debug APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug-${{ github.sha }}
+        path: android/app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 30
+
+    # Build Release APK only for tags
+    - name: Build Release APK
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        cd android
+        ./gradlew assembleRelease
+
+    - name: Upload Release APK
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-release-${{ github.ref_name }}
+        path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+        retention-days: 90
+
+    # Create GitHub Release for tags
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          android/app/build/outputs/apk/debug/app-debug.apk
+          android/app/build/outputs/apk/release/app-release-unsigned.apk
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
