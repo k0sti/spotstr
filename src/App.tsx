@@ -1,29 +1,23 @@
-import { ChakraProvider } from '@chakra-ui/react'
+import { ChakraProvider, ColorModeScript, useColorModeValue } from '@chakra-ui/react'
 import { useState, useEffect } from 'react'
+import theme from './theme'
 import { safeAreaService } from './services/safeAreaService'
 import { IdentitiesPage } from './components/IdentitiesPage'
 import { LocationsPage } from './components/LocationsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { ContactsPage } from './components/ContactsPage'
 import { GroupsPage } from './components/GroupsPage'
-import { MapComponent } from './components/MapComponent'
+import { MapView } from './components/MapView'
+import { TopBar } from './components/TopBar'
+import { LocationBar } from './components/LocationBar'
+import { ShareLocationPopup } from './components/ShareLocationPopup'
 import { useNostr } from './hooks/useNostr'
 import { AccountsProvider } from 'applesauce-react'
 import { useAccounts } from 'applesauce-react/hooks'
 import accounts from './services/accounts'
 import { groupsManager } from './services/groups'
-// import theme from './theme'
-import {
-  Box,
-  Flex,
-  Text,
-  IconButton,
-  HStack,
-  Tooltip,
-  Circle,
-  Image,
-  useToast
-} from '@chakra-ui/react'
+import { continuousSharingService, ContinuousSharingState } from './services/continuousSharingService'
+import { Box, useToast } from '@chakra-ui/react'
 
 type PageType = 'identities' | 'contacts' | 'groups' | 'locations' | 'settings' | null
 
@@ -33,6 +27,16 @@ function AppContent() {
   const accountsList = useAccounts()
   const toast = useToast()
   const isConnected = connectedRelays.length > 0
+  const modalBg = useColorModeValue('white', 'gray.800')
+
+  // Location-related state
+  const [geohashInput, setGeohashInput] = useState('')
+  const [isQueryingLocation, setIsQueryingLocation] = useState(false)
+  const [locationButtonColor, setLocationButtonColor] = useState<'gray' | 'blue' | 'red' | 'yellow'>('gray')
+  const [continuousSharingState, setContinuousSharingState] = useState<ContinuousSharingState>(
+    continuousSharingService.getCurrentState()
+  )
+  const [showShareModal, setShowShareModal] = useState(false)
 
   // Initialize safe area service on mount
   useEffect(() => {
@@ -46,6 +50,25 @@ function AppContent() {
     setAccounts(accountsList)
   }, [accountsList, setAccounts])
 
+  // Also trigger decryption when groups change
+  useEffect(() => {
+    const updateGroups = () => {
+      console.log('[App] Groups updated, triggering decryption attempt for new groups')
+      setAccounts(accountsList)
+    }
+
+    const subscription = groupsManager.groups$.subscribe(updateGroups)
+    return () => subscription.unsubscribe()
+  }, [accountsList, setAccounts])
+
+  // Subscribe to continuous sharing state
+  useEffect(() => {
+    const subscription = continuousSharingService.state$.subscribe(
+      setContinuousSharingState
+    )
+    return () => subscription.unsubscribe()
+  }, [])
+
   const handlePageClick = (page: PageType) => {
     // Toggle off if clicking the currently active page
     if (currentPage === page) {
@@ -55,45 +78,46 @@ function AppContent() {
     }
   }
 
-  // Also trigger decryption when groups change
-  useEffect(() => {
-    const subscription = groupsManager.groups$.subscribe(() => {
-      // Re-trigger decryption when groups change
-      if (accountsList.length > 0) {
-        setAccounts(accountsList)
-      }
-    })
-    return () => subscription.unsubscribe()
-  }, [accountsList, setAccounts])
-
-  // Check for group import in URL query parameters
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    const hexNsec = urlParams.get('g')
-
-    if (hexNsec) {
-      const group = groupsManager.importFromUrl(urlParams)
-      if (group) {
-        toast({
-          title: 'Group imported',
-          description: `Successfully imported group: ${group.name}`,
-          status: 'success',
-          duration: 3000,
-        })
-      } else {
-        toast({
-          title: 'Import failed',
-          description: 'This group may already exist or the URL is invalid',
-          status: 'error',
-          duration: 5000,
-        })
-      }
-
-      // Clear URL parameters
-      window.history.replaceState({}, '', '/')
+  const handleToggleLocation = () => {
+    setIsQueryingLocation(!isQueryingLocation)
+    if (!isQueryingLocation) {
+      setLocationButtonColor('blue')
+    } else {
+      setLocationButtonColor('gray')
     }
-  }, [toast])
+  }
 
+  const handleShareLocation = () => {
+    setShowShareModal(true)
+  }
+
+  const handleStopSharing = async () => {
+    await continuousSharingService.stopContinuousSharing()
+    toast({
+      title: 'Stopped sharing',
+      description: 'Location sharing has been stopped',
+      status: 'info',
+      duration: 2000,
+    })
+  }
+
+  const handleLocationUpdate = (geohash: string) => {
+    setGeohashInput(geohash)
+    // Blink yellow then back to blue for updates
+    setLocationButtonColor('yellow')
+    setTimeout(() => setLocationButtonColor('blue'), 200)
+  }
+
+  const [manualGeohashFocus, setManualGeohashFocus] = useState(false)
+
+  const handleGeohashSubmit = () => {
+    if (geohashInput) {
+      // Trigger map focus on the geohash
+      setManualGeohashFocus(true)
+      // Reset the focus trigger after a short delay
+      setTimeout(() => setManualGeohashFocus(false), 100)
+    }
+  }
 
   const renderCurrentPage = () => {
     switch (currentPage) {
@@ -108,111 +132,81 @@ function AppContent() {
       case 'settings':
         return <SettingsPage />
       default:
-        return <IdentitiesPage />
+        return null
     }
   }
 
   return (
-    <ChakraProvider>
-      <Box height="100dvh" position="relative">
-        {/* Background Map */}
-        <MapComponent />
-        
-        {/* Top Bar */}
-        <Box 
-          position="absolute" 
-          top="0" 
-          left="0" 
-          right="0" 
-          bg="gray.100" 
-          shadow="md" 
-          zIndex="1000"
-          p={2}
-        >
-          <Flex justify="space-between" align="center">
-            <HStack spacing={3}>
-              <HStack
-                spacing={2}
-                cursor="pointer"
-                _hover={{ opacity: 0.8 }}
-                onClick={() => window.location.href = '/'}
-              >
-                <Image
-                  src="/icon-512.png"
-                  alt="Spotstr Logo"
-                  boxSize="32px"
-                />
-                <Text
-                  fontSize="xl"
-                  fontWeight="bold"
-                  color="gray.800"
-                >
-                  Spotstr
-                </Text>
-              </HStack>
-              <Tooltip 
-                label={isConnected ? `Connected to ${connectedRelays.length} relay${connectedRelays.length > 1 ? 's' : ''}` : 'No relay connection'}
-                placement="bottom"
-              >
-                <Circle 
-                  size="10px" 
-                  bg={isConnected ? 'green.500' : 'gray.400'}
-                  boxShadow={isConnected ? '0 0 8px rgba(72, 187, 120, 0.5)' : 'none'}
-                />
-              </Tooltip>
-            </HStack>
-            
-            <HStack spacing={0}>
-              {[
-                { page: 'identities' as const, label: 'Identities', icon: '👤' },
-                { page: 'groups' as const, label: 'Groups', icon: '👥' },
-                { page: 'contacts' as const, label: 'Contacts', icon: '🔗' },
-                { page: 'locations' as const, label: 'Locations', icon: '📍' },
-                { page: 'settings' as const, label: 'Settings', icon: '⚙️' },
-              ].map(({ page, label, icon }) => (
-                <Tooltip key={page} label={label} placement="bottom">
-                  <IconButton
-                    aria-label={label}
-                    icon={<span style={{ fontSize: '1.5rem' }}>{icon}</span>}
-                    size="md"
-                    onClick={() => handlePageClick(page)}
-                    variant={currentPage === page ? 'solid' : 'outline'}
-                  />
-                </Tooltip>
-              ))}
-            </HStack>
-          </Flex>
-        </Box>
+    <ChakraProvider theme={theme}>
+      <Box position="relative" width="100vw" height="100vh" overflow="hidden">
+        {/* Full-screen Map Background */}
+        <MapView
+          geohashInput={geohashInput}
+          isQueryingLocation={isQueryingLocation}
+          onLocationUpdate={handleLocationUpdate}
+          shouldFocusGeohash={manualGeohashFocus}
+        />
 
-        {/* Page Content */}
+        {/* Floating Top Bar */}
+        <TopBar
+          currentPage={currentPage}
+          onPageClick={handlePageClick}
+          isConnected={isConnected}
+          connectedRelays={connectedRelays}
+        />
+
+        {/* Floating Location Bar */}
+        <LocationBar
+          geohashInput={geohashInput}
+          onGeohashChange={setGeohashInput}
+          onGeohashSubmit={handleGeohashSubmit}
+          onToggleLocation={handleToggleLocation}
+          onShareLocation={handleShareLocation}
+          onStopSharing={handleStopSharing}
+          isQueryingLocation={isQueryingLocation}
+          locationButtonColor={locationButtonColor}
+          continuousSharingState={continuousSharingState}
+        />
+
+        {/* Page Content - Floating Modal */}
         {currentPage && (
           <Box
-            position="absolute"
-            top="20"
-            left="4"
-            bg="gray.50"
-            shadow="lg"
-            rounded="md"
+            position="fixed"
+            top="calc(60px + var(--safe-area-inset-top))"
+            left="50%"
+            transform="translateX(-50%)"
+            bg={modalBg}
+            shadow="2xl"
+            rounded="lg"
             p={6}
-            minW="400px"
-            maxH="80vh"
+            minW={{ base: "90vw", md: "500px" }}
+            maxW="90vw"
+            maxH="calc(80vh - var(--safe-area-inset-top) - var(--safe-area-inset-bottom))"
             overflow="auto"
-            zIndex="999"
+            zIndex={1002}
           >
             {renderCurrentPage()}
           </Box>
         )}
+
+        {/* Share Location Modal */}
+        <ShareLocationPopup
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          initialGeohash={geohashInput}
+        />
       </Box>
     </ChakraProvider>
   )
 }
 
-export function App() {
+export default function App() {
   return (
-    <ChakraProvider>
+    <>
+      <ColorModeScript initialColorMode={theme.config.initialColorMode} />
       <AccountsProvider manager={accounts}>
         <AppContent />
       </AccountsProvider>
-    </ChakraProvider>
+    </>
   )
 }

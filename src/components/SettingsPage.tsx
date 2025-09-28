@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Box, Text, Input, VStack, FormLabel, Button, HStack, useToast, Divider, Textarea, Switch, IconButton, Tooltip, useDisclosure, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, ModalFooter, Link } from '@chakra-ui/react'
+import { Box, Text, Input, VStack, FormLabel, Button, HStack, useToast, Divider, Textarea, Switch, IconButton, Tooltip, useDisclosure, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, ModalFooter, Link, useColorMode } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
+import { FaMoon, FaSun } from 'react-icons/fa'
 
 const DEFAULT_RELAY = 'wss://orangesync.tech'
 const DEFAULT_PROFILE_RELAYS = [
@@ -12,6 +13,7 @@ const DEFAULT_PROFILE_RELAYS = [
 export function SettingsPage() {
   const { connectToRelay, disconnectRelay, isRelayConnected } = useNostr()
   const { isOpen: isHelpOpen, onOpen: onHelpOpen, onClose: onHelpClose } = useDisclosure()
+  const { colorMode, toggleColorMode } = useColorMode()
   const toast = useToast()
   const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -176,6 +178,34 @@ export function SettingsPage() {
         </HStack>
       </HStack>
       <VStack spacing={4} align="stretch">
+        {/* Theme Settings */}
+        <Box>
+          <HStack justify="space-between" align="center">
+            <VStack align="start" spacing={0}>
+              <Text fontWeight="medium">Theme</Text>
+              <Text fontSize="sm" color="gray.500">
+                Switch between light and dark mode
+              </Text>
+            </VStack>
+            <HStack spacing={2}>
+              <Text fontSize="sm" color="gray.600">
+                {colorMode === 'light' ? 'Light' : 'Dark'}
+              </Text>
+              <Button
+                leftIcon={colorMode === 'light' ? <FaSun /> : <FaMoon />}
+                onClick={toggleColorMode}
+                size="sm"
+                colorScheme={colorMode === 'light' ? 'yellow' : 'purple'}
+                variant="outline"
+              >
+                {colorMode === 'light' ? 'Switch to Dark' : 'Switch to Light'}
+              </Button>
+            </HStack>
+          </HStack>
+        </Box>
+
+        <Divider />
+
         <Box>
           <FormLabel>Location Relay</FormLabel>
           <Input 

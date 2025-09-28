@@ -14,7 +14,7 @@ export interface ContinuousSharingState {
 }
 
 class ContinuousSharingService {
-  private state$ = new BehaviorSubject<ContinuousSharingState>({
+  public state$ = new BehaviorSubject<ContinuousSharingState>({
     isSharing: false,
     senderPubkey: null,
     receiverId: null,
