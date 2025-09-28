@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Box, Text, Input, VStack, FormLabel, Button, HStack, useToast, Divider, Textarea, Switch, IconButton, Tooltip, useDisclosure, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, ModalFooter, Link } from '@chakra-ui/react'
 import { useNostr } from '../hooks/useNostr'
 
-const DEFAULT_RELAY = 'https://precision.bilberry-tetra.ts.net/relay'
+const DEFAULT_RELAY = 'wss://orangesync.tech'
 const DEFAULT_PROFILE_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',

@@ -18,7 +18,6 @@ Spotstr allows users to share their location with specific individuals or groups
 ## Location Event Specification
 
 Location events use [location-first Nostr event specification](https://github.com/k0sti/nostr-location.git).
-Currently only encrypted `kind:30473` events are supported.
 
 ## Installation
 
@@ -34,42 +33,14 @@ bun install
 bun run dev
 ```
 
-## Development
-
-```bash
-# Development server
-bun run dev
-
-# Build for production
-bun run build
-
-# Run tests
-bun test
-
-# Preview production build
-bun run preview
-```
-
 ## Contributing
 
-Contributions are welcome! The project is in active development, particularly around:
-- Improving the NIP-location specification
-- Enhancing the user interface
-- Supporting additional location sharing patterns
+Contributions are welcome!
 
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## Security Considerations
-
-- Location data is sensitive - always verify recipient identities
-- Use ephemeral keys for anonymous sharing
-- Consider using time-limited sharing with expiration tags
-- Be mindful of geohash precision levels for privacy
-
 ## Links
 
-- [NIP-location Specification](https://github.com/k0sti/nostr-location/blob/main/NIP-location.md)
-- [Nostr Protocol](https://nostr.com/)
-- [NIPs Repository](https://github.com/nostr-protocol/nips)
+- [Location Event Specification](https://github.com/k0sti/nostr-location/blob/main/doc/NostrLocation.md)
