@@ -44,16 +44,17 @@ function checkVersions() {
     errors.push(`❌ Version code mismatch in build.gradle: ${versionCode} (expected ${expectedVersionCode})`);
   }
 
-  // Check config.xml if it exists
+  // Check config.xml if it exists (note: this file is gitignored by Capacitor)
   const configPath = path.join(ROOT_DIR, 'android', 'app', 'src', 'main', 'res', 'xml', 'config.xml');
   if (fs.existsSync(configPath)) {
     const config = fs.readFileSync(configPath, 'utf8');
     const configVersionMatch = config.match(/version="([^"]+)"/);
     const configVersion = configVersionMatch ? configVersionMatch[1] : null;
-    console.log(`   config.xml: ${configVersion}`);
+    console.log(`   config.xml: ${configVersion} (gitignored)`);
 
+    // Don't treat config.xml version mismatch as an error since it's gitignored
     if (configVersion !== packageVersion) {
-      errors.push(`❌ Version mismatch in config.xml: ${configVersion} (expected ${packageVersion})`);
+      console.log(`   Note: config.xml has different version but is gitignored`);
     }
   }
 

@@ -78,8 +78,8 @@ function gitCommitAndTag(version, oldVersion) {
     // Check if we're in a git repository
     execSync('git rev-parse --git-dir', { stdio: 'ignore' });
 
-    // Add version files
-    execSync('git add package.json android/app/build.gradle android/app/src/main/res/xml/config.xml', {
+    // Add version files (only add config.xml if it's not ignored)
+    execSync('git add package.json android/app/build.gradle', {
       cwd: ROOT_DIR,
       stdio: 'inherit'
     });
