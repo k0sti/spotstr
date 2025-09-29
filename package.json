@@ -1,6 +1,6 @@
 {
   "name": "spotstr-proto4",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Location sharing app on Nostr",
   "main": "src/main.tsx",
   "type": "module",
