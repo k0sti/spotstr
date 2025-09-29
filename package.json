@@ -1,6 +1,6 @@
 {
   "name": "spotstr-proto4",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Location sharing app on Nostr",
   "main": "src/main.tsx",
   "type": "module",
@@ -15,7 +15,13 @@
     "android:run": "bunx cap run android",
     "android:open": "bunx cap open android",
     "android:sync": "bunx cap sync android",
-    "android:apk": "bun run icons:generate && bun run build && bunx cap sync android && cd android && ./gradlew assembleDebug && echo 'APK built at: android/app/build/outputs/apk/debug/app-debug.apk'"
+    "android:apk": "bun run icons:generate && bun run build && bunx cap sync android && cd android && ./gradlew assembleDebug && echo 'APK built at: android/app/build/outputs/apk/debug/app-debug.apk'",
+    "version:patch": "node scripts/version-bump.js patch",
+    "version:minor": "node scripts/version-bump.js minor",
+    "version:major": "node scripts/version-bump.js major",
+    "version:set": "node scripts/version-bump.js",
+    "version:check": "node scripts/version-check.js",
+    "release": "bun run version:check && git push && git push --tags"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
