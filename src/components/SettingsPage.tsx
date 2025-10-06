@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Box, Text, VStack, Button, HStack, useToast, Divider, Switch, IconButton, Tooltip, useDisclosure, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, ModalFooter, Link, useColorMode, FormLabel } from '@chakra-ui/react'
+import { Box, Text, VStack, Button, HStack, useToast, Divider, Switch, IconButton, Tooltip, useDisclosure, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, ModalFooter, Link, useColorMode, FormLabel, Input } from '@chakra-ui/react'
 import { FaMoon, FaSun } from 'react-icons/fa'
 
 export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => void }) {
@@ -7,12 +7,25 @@ export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => vo
   const { colorMode, toggleColorMode } = useColorMode()
   const toast = useToast()
   const [simulateLocation, setSimulateLocation] = useState(false)
+  const [fetchAllGeohashEvents, setFetchAllGeohashEvents] = useState(false)
+  const [eventKindsList, setEventKindsList] = useState<string>('')
 
   useEffect(() => {
     // Load simulate location setting
     const savedSimulate = localStorage.getItem('spotstr_simulateLocation')
     if (savedSimulate === 'true') {
       setSimulateLocation(true)
+    }
+
+    // Load geohash events settings
+    const savedFetchAll = localStorage.getItem('spotstr_fetchAllGeohashEvents')
+    if (savedFetchAll === 'true') {
+      setFetchAllGeohashEvents(true)
+    }
+
+    const savedEventKinds = localStorage.getItem('spotstr_eventKindsList')
+    if (savedEventKinds) {
+      setEventKindsList(savedEventKinds)
     }
   }, [])
 
@@ -31,6 +44,28 @@ export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => vo
       status: 'info',
       duration: 2000,
     })
+  }
+
+  const handleFetchAllToggle = (checked: boolean) => {
+    setFetchAllGeohashEvents(checked)
+    localStorage.setItem('spotstr_fetchAllGeohashEvents', String(checked))
+    toast({
+      title: checked ? 'Fetching all geohash events' : 'Fetching only location events',
+      description: checked ? 'Will fetch all events with g-tags' : 'Will fetch only kind 30472/30473',
+      status: 'info',
+      duration: 2000,
+    })
+    // Trigger reload of nostr subscriptions
+    window.dispatchEvent(new CustomEvent('geohash-settings-changed'))
+  }
+
+  const handleEventKindsChange = (value: string) => {
+    setEventKindsList(value)
+    localStorage.setItem('spotstr_eventKindsList', value)
+    // Trigger reload of nostr subscriptions if fetch all is enabled
+    if (fetchAllGeohashEvents) {
+      window.dispatchEvent(new CustomEvent('geohash-settings-changed'))
+    }
   }
 
   return (
@@ -112,6 +147,42 @@ export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => vo
             >
               Configure Relays
             </Button>
+          </VStack>
+        </Box>
+
+        <Divider />
+
+        {/* Geohash Event Settings */}
+        <Box>
+          <VStack align="start" spacing={3}>
+            <Text fontWeight="medium">Geohash Event Settings</Text>
+            <HStack justify="space-between" width="full">
+              <VStack align="start" spacing={0}>
+                <Text fontSize="sm">Fetch all geohash events</Text>
+                <Text fontSize="xs" color="gray.500">
+                  Fetch any event kind with g-tags, not just location events
+                </Text>
+              </VStack>
+              <Switch
+                isChecked={fetchAllGeohashEvents}
+                onChange={(e) => handleFetchAllToggle(e.target.checked)}
+              />
+            </HStack>
+
+            {fetchAllGeohashEvents && (
+              <VStack align="start" spacing={2} width="full">
+                <Text fontSize="sm">Event kinds to fetch</Text>
+                <Input
+                  placeholder="e.g., 1,30000,30001 (empty for all)"
+                  value={eventKindsList}
+                  onChange={(e) => handleEventKindsChange(e.target.value)}
+                  size="sm"
+                />
+                <Text fontSize="xs" color="gray.500">
+                  Comma-separated list of event kinds. Leave empty to fetch all kinds with g-tags.
+                </Text>
+              </VStack>
+            )}
           </VStack>
         </Box>
 

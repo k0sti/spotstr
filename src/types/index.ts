@@ -22,7 +22,7 @@ export interface LocationEvent {
   encryptedContent?: string // Store encrypted content for later decryption
 
   // New fields for public/private distinction
-  eventKind: 30472 | 30473 // Event kind to distinguish public/private
+  eventKind: number // Event kind (30472, 30473, or any other kind with g-tag)
   tags?: Record<string, any> // Generic metadata storage for all tags
 }
 

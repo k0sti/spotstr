@@ -35,6 +35,8 @@ const privateIcon = createMarkerIcon('#dc2626')
 const createPopupContent = (location: MapLocation): string => {
   const event = location.event
   const isPublic = event.eventKind === 30472
+  const isPrivate = event.eventKind === 30473
+  const isLocationEvent = isPublic || isPrivate
 
   // Escape strings for safe use in HTML attributes
   const escapeHtml = (str: string) => {
@@ -84,15 +86,27 @@ const createPopupContent = (location: MapLocation): string => {
 
       <!-- First line: Type and Geohash badges -->
       <div style="margin-bottom: 6px;">
-        <span style="
-          background: ${isPublic ? '#3b82f6' : '#dc2626'};
-          color: white;
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-size: 11px;
-          font-weight: 500;
-          margin-right: 4px;
-        ">${isPublic ? 'Public' : 'Private'}</span>
+        ${isLocationEvent ? `
+          <span style="
+            background: ${isPublic ? '#3b82f6' : '#dc2626'};
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            margin-right: 4px;
+          ">${isPublic ? 'Public' : 'Private'}</span>
+        ` : `
+          <span style="
+            background: #6366f1;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            margin-right: 4px;
+          ">Kind ${event.eventKind}</span>
+        `}
         <span onclick="window.mapCopyToClipboard('${escapeHtml(event.geohash)}', 'Geohash')" style="
           background: #10b981;
           color: white;
@@ -276,8 +290,24 @@ export function MapView({
       ]
 
       const isPublic = location.event.eventKind === 30472
+      const isPrivate = location.event.eventKind === 30473
+
+      // Choose color based on event kind
+      let rectColor: string
+      let markerIcon: L.DivIcon
+      if (isPublic) {
+        rectColor = '#2563eb' // blue for public location events
+        markerIcon = publicIcon
+      } else if (isPrivate) {
+        rectColor = '#dc2626' // red for private location events
+        markerIcon = privateIcon
+      } else {
+        rectColor = '#9333ea' // purple for other event kinds
+        markerIcon = createMarkerIcon('#9333ea', false)
+      }
+
       const rect = L.rectangle(bounds, {
-        color: isPublic ? '#2563eb' : '#dc2626',
+        color: rectColor,
         weight: 1,
         opacity: 0.6,
         fillOpacity: 0.2
@@ -285,7 +315,7 @@ export function MapView({
 
       // Create center marker
       const marker = L.marker([decoded.lat, decoded.lng], {
-        icon: isPublic ? publicIcon : privateIcon
+        icon: markerIcon
       }).addTo(mapRef.current!)
 
       // Add detailed popup
@@ -294,7 +324,14 @@ export function MapView({
       // Add accuracy circle if accuracy is available
       const accuracy = location.event.tags?.accuracy
       if (accuracy && typeof accuracy === 'number' && accuracy > 0) {
-        const circleColor = isPublic ? '#3b82f6' : '#ef4444' // blue-500 for public, red-500 for private
+        let circleColor: string
+        if (isPublic) {
+          circleColor = '#3b82f6' // blue-500 for public
+        } else if (isPrivate) {
+          circleColor = '#ef4444' // red-500 for private
+        } else {
+          circleColor = '#a855f7' // purple-500 for other kinds
+        }
         L.circle([decoded.lat, decoded.lng], {
           radius: accuracy, // radius in meters
           color: circleColor,
