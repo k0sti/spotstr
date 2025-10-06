@@ -218,16 +218,20 @@ export function MapView({
       attributionControl: false
     }).setView([30, 0], 2)
 
-    // Add tile layer (light mode by default since theme.ts has initialColorMode: 'light')
+    // Add tile layer with more colorful default tiles
     const tileUrl = colorMode === 'dark'
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' // Standard OSM with colors
 
-    tileLayerRef.current = L.tileLayer(tileUrl, {
-      attribution: '© OpenStreetMap contributors © CARTO',
-      subdomains: 'abcd',
-      maxZoom: 20
-    }).addTo(map)
+    const tileOptions = {
+      attribution: colorMode === 'dark'
+        ? '© OpenStreetMap contributors © CARTO'
+        : '© OpenStreetMap contributors',
+      maxZoom: 20,
+      ...(colorMode === 'dark' ? { subdomains: 'abcd' } : { subdomains: 'abc' })
+    }
+
+    tileLayerRef.current = L.tileLayer(tileUrl, tileOptions).addTo(map)
 
     // Zoom control removed - using touch/scroll zoom instead
     // Attribution moved to bottom right
@@ -251,15 +255,19 @@ export function MapView({
 
     const tileUrl = colorMode === 'dark'
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' // Standard OSM with colors
+
+    const tileOptions = {
+      attribution: colorMode === 'dark'
+        ? '© OpenStreetMap contributors © CARTO'
+        : '© OpenStreetMap contributors',
+      maxZoom: 20,
+      ...(colorMode === 'dark' ? { subdomains: 'abcd' } : { subdomains: 'abc' })
+    }
 
     // Remove old layer and add new one
     mapRef.current.removeLayer(tileLayerRef.current)
-    tileLayerRef.current = L.tileLayer(tileUrl, {
-      attribution: '© OpenStreetMap contributors © CARTO',
-      subdomains: 'abcd',
-      maxZoom: 20
-    }).addTo(mapRef.current)
+    tileLayerRef.current = L.tileLayer(tileUrl, tileOptions).addTo(mapRef.current)
   }, [colorMode])
 
   // Subscribe to location updates from mapService
