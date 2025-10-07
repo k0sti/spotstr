@@ -38,6 +38,10 @@ function AppContent() {
   )
   const [showShareModal, setShowShareModal] = useState(false)
 
+  // Unified location query management: active when either GPS tracking OR continuous sharing is on
+  // Note: actual location query is handled in MapView which checks simulation override from settings
+  const shouldQueryLocation = isQueryingLocation || continuousSharingState.isSharing
+
   // Initialize safe area service on mount
   useEffect(() => {
     safeAreaService.initialize().catch(error => {
@@ -149,7 +153,7 @@ function AppContent() {
         {/* Full-screen Map Background */}
         <MapView
           geohashInput={geohashInput}
-          isQueryingLocation={isQueryingLocation}
+          isQueryingLocation={shouldQueryLocation}
           onLocationUpdate={handleLocationUpdate}
           shouldFocusGeohash={manualGeohashFocus}
         />

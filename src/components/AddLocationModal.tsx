@@ -25,6 +25,7 @@ import { useAccounts } from 'applesauce-react/hooks'
 import { useNostr } from '../hooks/useNostr'
 import { useGroups } from '../hooks/useGroups'
 import { useContacts } from '../hooks/useContacts'
+import { useRelayService } from '../services/relayService'
 import { generateGeohash, npubToHex } from '../utils/crypto'
 import { LocationService } from '../services/locationService'
 import { createLocationEvent, signAndPublishLocationEvent, parseExpiryTime } from '../utils/locationEvents'
@@ -38,9 +39,10 @@ interface AddLocationModalProps {
 export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLocationModalProps) {
   const toast = useToast()
   const accounts = useAccounts()
-  const { publishLocationEvent, connectedRelays } = useNostr()
+  const { publishLocationEvent } = useNostr()
   const { groups } = useGroups()
   const { contacts } = useContacts()
+  const relayService = useRelayService()
 
   const [geohash, setGeohash] = useState(initialGeohash)
   const [locationName, setLocationName] = useState('')
@@ -50,6 +52,17 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
   const [selectedReceiver, setSelectedReceiver] = useState('public')
   const [isPublishing, setIsPublishing] = useState(false)
   const [additionalTags, setAdditionalTags] = useState<Array<{ key: string; value: string }>>([])
+  const [locationRelaysConnected, setLocationRelaysConnected] = useState(false)
+
+  // Subscribe to relay status
+  useEffect(() => {
+    const subscription = relayService.relayStatus$.subscribe(() => {
+      const connectedLocationRelays = relayService.getConnectedRelays('location')
+      setLocationRelaysConnected(connectedLocationRelays.length > 0)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [relayService])
 
   // Set initial geohash when prop changes
   useEffect(() => {
@@ -129,10 +142,11 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
       return
     }
 
-    if (connectedRelays.length === 0) {
+    const connectedLocationRelays = relayService.getConnectedRelays('location')
+    if (connectedLocationRelays.length === 0) {
       toast({
-        title: 'No relays connected',
-        description: 'Please connect to at least one relay in Settings',
+        title: 'No location relays connected',
+        description: 'Please connect to at least one location relay in Settings',
         status: 'warning',
         duration: 3000,
       })
@@ -209,14 +223,14 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
       const result = await signAndPublishLocationEvent(
         unsignedEvent,
         senderAccount.signer,
-        connectedRelays,
+        connectedLocationRelays,
         publishLocationEvent
       )
 
       if (result.success) {
         toast({
           title: 'Location added',
-          description: `Location event has been published to ${connectedRelays.length} relay(s)`,
+          description: `Location event has been published to ${connectedLocationRelays.length} relay(s)`,
           status: 'success',
           duration: 3000,
         })
@@ -409,10 +423,10 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
               </Box>
             )}
 
-            {connectedRelays.length === 0 && (
+            {!locationRelaysConnected && (
               <Box p={2} bg="orange.50" borderRadius="md">
                 <Text fontSize="sm" color="orange.800">
-                  Please connect to at least one relay in Settings
+                  Please connect to at least one location relay in Settings
                 </Text>
               </Box>
             )}
@@ -428,7 +442,7 @@ export function AddLocationModal({ isOpen, onClose, initialGeohash = '' }: AddLo
               !geohash ||
               !selectedSender ||
               accounts.length === 0 ||
-              connectedRelays.length === 0
+              !locationRelaysConnected
             }
           >
             Add

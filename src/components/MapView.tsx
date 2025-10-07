@@ -182,6 +182,7 @@ export function MapView({
   const userLocationMarkerRef = useRef<L.Rectangle | null>(null)
   const userLocationCenterRef = useRef<L.Marker | null>(null)
   const coverageRectanglesRef = useRef<L.Rectangle[]>([])
+  const isFirstLocationUpdateRef = useRef<boolean>(true)
   const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number } | null>(null)
   const [mapZoom, setMapZoom] = useState<number>(2)
   const [centerGeohash, setCenterGeohash] = useState<string>('')
@@ -434,28 +435,63 @@ export function MapView({
       if (!location) return
 
       const rect = rectanglesRef.current.get(id)
-      if (rect) {
-        // Check if popup is open before removing
-        const marker = (rect as any)._associatedMarker as L.Marker
-        const isPopupOpen = marker && marker.isPopupOpen()
+      const marker = markersRef.current.get(id)
 
-        // Remove old marker
-        rect.remove()
-        if ((rect as any)._associatedMarker) {
-          (rect as any)._associatedMarker.remove()
-        }
-        if ((rect as any)._associatedCircle) {
-          (rect as any)._associatedCircle.remove()
-        }
-        rectanglesRef.current.delete(id)
-        markersRef.current.delete(id)
+      if (rect && marker) {
+        // Check if popup is open
+        const isPopupOpen = marker.isPopupOpen()
 
-        // Add the updated marker (it will be added in the next section)
-        toAdd.add(id)
+        // Update popup content without recreating the marker
+        marker.setPopupContent(createPopupContent(location))
 
-        // Store popup state to restore later
-        if (isPopupOpen) {
-          (location as any)._restorePopup = true
+        // Check if geohash changed (position changed)
+        const decoded = decodeGeohash(location.event.geohash)
+        if (decoded) {
+          const newLatLng = L.latLng(decoded.lat, decoded.lng)
+          const currentLatLng = marker.getLatLng()
+
+          // Only recreate if position actually changed
+          if (currentLatLng.lat !== newLatLng.lat || currentLatLng.lng !== newLatLng.lng) {
+            // Position changed, need to recreate
+            rect.remove()
+            if ((rect as any)._associatedMarker) {
+              (rect as any)._associatedMarker.remove()
+            }
+            if ((rect as any)._associatedCircle) {
+              (rect as any)._associatedCircle.remove()
+            }
+            rectanglesRef.current.delete(id)
+            markersRef.current.delete(id)
+
+            // Add the updated marker
+            toAdd.add(id)
+
+            // Store popup state to restore later
+            if (isPopupOpen) {
+              (location as any)._restorePopup = true
+            }
+          } else {
+            // Position unchanged, just flash the marker to show update
+            const isPublic = location.event.eventKind === 30472
+            const isPrivate = location.event.eventKind === 30473
+
+            // Flash with white glow briefly
+            marker.setIcon(whiteGlowIcon)
+            setTimeout(() => {
+              if (isPublic) {
+                marker.setIcon(publicIcon)
+              } else if (isPrivate) {
+                marker.setIcon(privateIcon)
+              } else {
+                marker.setIcon(createMarkerIcon('#9333ea', false))
+              }
+            }, 200)
+
+            // Keep popup open if it was open
+            if (isPopupOpen) {
+              marker.openPopup()
+            }
+          }
         }
       }
     })
@@ -571,19 +607,81 @@ export function MapView({
   useEffect(() => {
     if (!mapRef.current) return
 
-    // Remove previous user location marker
-    if (userLocationMarkerRef.current) {
-      userLocationMarkerRef.current.remove()
-      userLocationMarkerRef.current = null
-    }
-    if (userLocationCenterRef.current) {
-      userLocationCenterRef.current.remove()
-      userLocationCenterRef.current = null
+    // If GPS tracking is disabled, remove user location markers
+    if (!isQueryingLocation) {
+      if (userLocationMarkerRef.current) {
+        userLocationMarkerRef.current.remove()
+        userLocationMarkerRef.current = null
+      }
+      if (userLocationCenterRef.current) {
+        userLocationCenterRef.current.remove()
+        userLocationCenterRef.current = null
+      }
+      // Reset first location flag when stopping
+      isFirstLocationUpdateRef.current = true
+      return
     }
 
     if (geohashInput && geohashInput.length >= 1) {
       const decoded = decodeGeohash(geohashInput)
       if (decoded) {
+        // Check if popup was open before updating
+        const wasPopupOpen = userLocationCenterRef.current?.isPopupOpen() || false
+
+        // Check if we need to update position
+        const needsUpdate = !userLocationCenterRef.current ||
+          userLocationCenterRef.current.getLatLng().lat !== decoded.lat ||
+          userLocationCenterRef.current.getLatLng().lng !== decoded.lng
+
+        if (!needsUpdate) {
+          // Just update popup content if position unchanged
+          if (userLocationCenterRef.current) {
+            userLocationCenterRef.current.setPopupContent(`
+              <div style="font-family: -apple-system, system-ui, sans-serif; min-width: 180px;">
+                <div style="font-weight: bold; margin-bottom: 8px;">Your Location</div>
+                <div style="margin-bottom: 6px;">
+                  <span style="
+                    background: #10b981;
+                    color: white;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 500;
+                    margin-right: 4px;
+                  ">Current</span>
+                  <span onclick="window.mapCopyToClipboard('${geohashInput}', 'Geohash')" style="
+                    background: #6b7280;
+                    color: white;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-size: 11px;
+                    cursor: pointer;
+                  " title="Click to copy">${geohashInput}</span>
+                </div>
+                <div style="font-size: 12px; color: #6b7280;">
+                  Lat: ${decoded.lat.toFixed(6)}, Lng: ${decoded.lng.toFixed(6)}
+                </div>
+              </div>
+            `)
+
+            // Keep popup open if it was open
+            if (wasPopupOpen) {
+              userLocationCenterRef.current.openPopup()
+            }
+          }
+          return
+        }
+
+        // Remove previous user location marker only if position changed
+        if (userLocationMarkerRef.current) {
+          userLocationMarkerRef.current.remove()
+          userLocationMarkerRef.current = null
+        }
+        if (userLocationCenterRef.current) {
+          userLocationCenterRef.current.remove()
+          userLocationCenterRef.current = null
+        }
+
         // Add green rectangle for the geohash bounds
         const bounds = L.latLngBounds(
           [decoded.bounds.minLat, decoded.bounds.minLng],
@@ -645,14 +743,19 @@ export function MapView({
             </div>
           `)
 
-        // Focus map on this location if user manually submitted it or typed it (not from GPS query)
-        if (shouldFocusGeohash || (!isQueryingLocation && geohashInput.length > 0)) {
+        // Focus map on this location only if explicitly requested (user manually typed/submitted)
+        if (shouldFocusGeohash) {
           // Fit the map to show the entire geohash rectangle with some padding
           mapRef.current.fitBounds(bounds, {
             animate: true,
             duration: 0.5,
             padding: [50, 50]
           })
+
+          // Don't auto-open popup - let user open it manually
+        } else if (wasPopupOpen && userLocationCenterRef.current) {
+          // Keep popup open if it was open before the update
+          userLocationCenterRef.current.openPopup()
         }
       }
     }
@@ -668,31 +771,42 @@ export function MapView({
       )
       onLocationUpdate(geohash)
 
-      // Center map on current location
-      if (mapRef.current) {
+      // Center map on current location only on first update when 'Get current location' is enabled
+      // Zoom to level 16 which shows a good neighborhood-level view
+      if (mapRef.current && isFirstLocationUpdateRef.current && isQueryingLocation) {
         mapRef.current.setView(
           [position.coords.latitude, position.coords.longitude],
-          18
+          16,
+          {
+            animate: true,
+            duration: 0.5
+          }
         )
+
+        isFirstLocationUpdateRef.current = false
       }
     }
-  }, [onLocationUpdate])
+  }, [onLocationUpdate, isQueryingLocation])
 
   // Handle location tracking
   useEffect(() => {
     if (isQueryingLocation) {
+      // Only reset the flag if we're truly starting fresh (not from continuous sharing)
+      if (!watchIdRef.current) {
+        isFirstLocationUpdateRef.current = true
+      }
       LocationService.startWatching(handleLocationUpdate)
       watchIdRef.current = 'watching'
     } else {
       if (watchIdRef.current) {
-        LocationService.stopWatching()
+        LocationService.stopWatching(handleLocationUpdate)
         watchIdRef.current = null
       }
     }
 
     return () => {
       if (watchIdRef.current) {
-        LocationService.stopWatching()
+        LocationService.stopWatching(handleLocationUpdate)
         watchIdRef.current = null
       }
     }
@@ -700,30 +814,49 @@ export function MapView({
 
   // Handle focus events from mapService
   useEffect(() => {
-    const subscription = mapService.focusLocation$.subscribe(locationId => {
-      if (!locationId || !mapRef.current) return
+    const subscription = mapService.focusLocation$.subscribe(focusData => {
+      if (!focusData.id || !mapRef.current) return
 
-      const marker = markersRef.current.get(locationId)
-      const rect = rectanglesRef.current.get(locationId)
+      const marker = markersRef.current.get(focusData.id)
+      const rect = rectanglesRef.current.get(focusData.id)
       if (marker && rect) {
-        const latLng = marker.getLatLng()
-        mapRef.current.setView(latLng, 18, {
-          animate: true,
-          duration: 0.5
-        })
+        const location = locations.find(l => l.id === focusData.id)
+        if (!location) return
+
+        // Use provided options or calculate defaults
+        if (focusData.options?.fitBounds && focusData.options?.zoomLevel) {
+          // When clicking from location list, fit to geohash bounds with specified zoom
+          const bounds = L.latLngBounds(
+            [location.bounds.minLat, location.bounds.minLng],
+            [location.bounds.maxLat, location.bounds.maxLng]
+          )
+          mapRef.current.fitBounds(bounds, {
+            animate: true,
+            duration: 0.5,
+            maxZoom: focusData.options.zoomLevel,
+            padding: [50, 50]
+          })
+        } else {
+          // When clicking on marker, just pan without changing zoom
+          const latLng = marker.getLatLng()
+          mapRef.current.setView(latLng, mapRef.current.getZoom(), {
+            animate: true,
+            duration: 0.5
+          })
+        }
 
         // Find the location to get its type for default color
-        const location = locations.find(l => l.id === locationId)
-        if (location) {
-          const isPublic = location.event.eventKind === 30472
-          const defaultColor = isPublic ? '#2563eb' : '#dc2626'
+        const isPublic = location.event.eventKind === 30472
+        const isPrivate = location.event.eventKind === 30473
+        let defaultColor = '#9333ea' // purple for other kinds
+        if (isPublic) defaultColor = '#2563eb' // blue
+        else if (isPrivate) defaultColor = '#dc2626' // red
 
-          // Highlight the focused rectangle
-          rect.setStyle({ color: '#fbbf24', weight: 3 }) // yellow highlight
-          setTimeout(() => {
-            rect.setStyle({ color: defaultColor, weight: 1 })
-          }, 2000)
-        }
+        // Highlight the focused rectangle
+        rect.setStyle({ color: '#fbbf24', weight: 3 }) // yellow highlight
+        setTimeout(() => {
+          rect.setStyle({ color: defaultColor, weight: 1 })
+        }, 2000)
 
         marker.openPopup()
       }

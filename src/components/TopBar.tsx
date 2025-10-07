@@ -27,13 +27,20 @@ export function TopBar({ currentPage, onPageClick }: TopBarProps) {
   const relayService = useRelayService()
   const [locationRelaysConnected, setLocationRelaysConnected] = useState(false)
   const [profileRelaysConnected, setProfileRelaysConnected] = useState(false)
+  const [locationRelayCount, setLocationRelayCount] = useState({ connected: 0, total: 0 })
+  const [profileRelayCount, setProfileRelayCount] = useState({ connected: 0, total: 0 })
 
   useEffect(() => {
     const subscription = relayService.relayStatus$.subscribe(() => {
       const locationRelays = relayService.getConnectedRelays('location')
       const profileRelays = relayService.getConnectedRelays('profile')
+      const allLocationRelays = relayService.getRelayConfigs('location')
+      const allProfileRelays = relayService.getRelayConfigs('profile')
+
       setLocationRelaysConnected(locationRelays.length > 0)
       setProfileRelaysConnected(profileRelays.length > 0)
+      setLocationRelayCount({ connected: locationRelays.length, total: allLocationRelays.length })
+      setProfileRelayCount({ connected: profileRelays.length, total: allProfileRelays.length })
     })
 
     return () => subscription.unsubscribe()
@@ -96,8 +103,12 @@ export function TopBar({ currentPage, onPageClick }: TopBarProps) {
             <Tooltip
               label={
                 <Box>
-                  <Text fontSize="xs">Location relays: {locationRelaysConnected ? 'Connected' : 'Disconnected'}</Text>
-                  <Text fontSize="xs">Profile relays: {profileRelaysConnected ? 'Connected' : 'Disconnected'}</Text>
+                  <Text fontSize="xs">
+                    Location relays: {locationRelayCount.connected}/{locationRelayCount.total} connected
+                  </Text>
+                  <Text fontSize="xs">
+                    Profile relays: {profileRelayCount.connected}/{profileRelayCount.total} connected
+                  </Text>
                 </Box>
               }
               placement="bottom"

@@ -91,8 +91,8 @@ function AddContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
   const { contacts, addMultipleContacts, addContact } = useContacts()
   const toast = useToast()
 
-  // Cache duration: 5 minutes
-  const CACHE_DURATION = 5 * 60 * 1000
+  // Cache duration: 24 hours
+  const CACHE_DURATION = 24 * 60 * 60 * 1000
 
   // Get existing contact pubkeys for filtering
   const existingContactPubkeys = new Set(contacts.map(c => c.pubkey))
