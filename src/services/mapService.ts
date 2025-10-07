@@ -41,18 +41,27 @@ class MapService {
   updateLocations(events: LocationEvent[]) {
     const mapLocations: MapLocation[] = []
 
+    // Check visibility settings
+    const fetchAllGeohashEvents = localStorage.getItem('spotstr_fetchAllGeohashEvents') === 'true'
+
     for (const event of events) {
       // Skip encrypted geohashes for now
       if (event.geohash && event.geohash !== 'encrypted') {
-        const decoded = decodeGeohash(event.geohash)
-        if (decoded) {
-          mapLocations.push({
-            id: event.id,
-            lat: decoded.lat,
-            lng: decoded.lng,
-            bounds: decoded.bounds,
-            event
-          })
+        // Filter based on visibility settings
+        const isLocationEvent = event.eventKind === 30472 || event.eventKind === 30473
+
+        // Show location events always, show other events only if setting is enabled
+        if (isLocationEvent || fetchAllGeohashEvents) {
+          const decoded = decodeGeohash(event.geohash)
+          if (decoded) {
+            mapLocations.push({
+              id: event.id,
+              lat: decoded.lat,
+              lng: decoded.lng,
+              bounds: decoded.bounds,
+              event
+            })
+          }
         }
       }
     }

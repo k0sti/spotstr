@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Box, useColorMode, useToast } from '@chakra-ui/react'
+import { Box, useColorMode, useToast, VStack, Text, HStack, Badge } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 import { generateGeohash, decodeGeohash } from '../utils/crypto'
 import { LocationService } from '../services/locationService'
 import { ShareLocationPopup } from './ShareLocationPopup'
+import { calculateGeohashCoverage, getGeohashBounds } from '../utils/geohashCoverage'
 
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css'
@@ -180,6 +181,12 @@ export function MapView({
   const tileLayerRef = useRef<L.TileLayer | null>(null)
   const userLocationMarkerRef = useRef<L.Rectangle | null>(null)
   const userLocationCenterRef = useRef<L.Marker | null>(null)
+  const coverageRectanglesRef = useRef<L.Rectangle[]>([])
+  const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number } | null>(null)
+  const [mapZoom, setMapZoom] = useState<number>(2)
+  const [centerGeohash, setCenterGeohash] = useState<string>('')
+  const [coverageGeohashes, setCoverageGeohashes] = useState<string[]>([])
+  const [showDebugInfo, setShowDebugInfo] = useState(false)
   const { colorMode } = useColorMode()
   const toast = useToast()
 
@@ -209,6 +216,64 @@ export function MapView({
     }
   }, [toast])
 
+  // Update coverage rectangles for debug visualization
+  const updateCoverageRectangles = useCallback((geohashes: string[]) => {
+    if (!mapRef.current) return
+
+    // Clear existing rectangles
+    coverageRectanglesRef.current.forEach(rect => rect.remove())
+    coverageRectanglesRef.current = []
+
+    // Draw new rectangles
+    geohashes.forEach(gh => {
+      const bounds = getGeohashBounds(gh)
+      if (bounds) {
+        const rect = L.rectangle(bounds, {
+          color: '#ff00ff',
+          weight: 2,
+          opacity: 0.5,
+          fillOpacity: 0.1,
+          dashArray: '5, 5'
+        }).addTo(mapRef.current!)
+
+        // Add label with geohash
+        rect.bindTooltip(gh, {
+          permanent: true,
+          direction: 'center',
+          className: 'geohash-label'
+        })
+
+        coverageRectanglesRef.current.push(rect)
+      }
+    })
+  }, [])
+
+  // Listen for debug settings changes
+  useEffect(() => {
+    const handleDebugSettingsChange = () => {
+      const debugEnabled = localStorage.getItem('spotstr_showDebugInfo') === 'true'
+      setShowDebugInfo(debugEnabled)
+
+      if (!debugEnabled) {
+        // Clear coverage rectangles
+        coverageRectanglesRef.current.forEach(rect => rect.remove())
+        coverageRectanglesRef.current = []
+      } else if (mapRef.current) {
+        // Update coverage rectangles
+        updateCoverageRectangles(coverageGeohashes)
+      }
+    }
+
+    window.addEventListener('debug-settings-changed', handleDebugSettingsChange)
+
+    // Check initial state
+    handleDebugSettingsChange()
+
+    return () => {
+      window.removeEventListener('debug-settings-changed', handleDebugSettingsChange)
+    }
+  }, [coverageGeohashes, updateCoverageRectangles])
+
   // Initialize map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
@@ -237,11 +302,43 @@ export function MapView({
     // Attribution moved to bottom right
     L.control.attribution({ position: 'bottomright' }).addTo(map)
 
+    // Track map movement and zoom
+    const updateMapInfo = () => {
+      if (!mapRef.current) return
+      const center = mapRef.current.getCenter()
+      const zoom = mapRef.current.getZoom()
+      const bounds = mapRef.current.getBounds()
+
+      setMapCenter({ lat: center.lat, lng: center.lng })
+      setMapZoom(zoom)
+
+      // Calculate center geohash
+      const centerGh = generateGeohash(center.lat, center.lng, Math.min(Math.max(Math.floor(zoom / 2), 3), 8))
+      setCenterGeohash(centerGh)
+
+      // Calculate coverage geohashes
+      const coverage = calculateGeohashCoverage(bounds)
+      setCoverageGeohashes(coverage.coveringGeohashes)
+
+      // Update coverage rectangles if debug mode is on
+      if (localStorage.getItem('spotstr_showDebugInfo') === 'true') {
+        updateCoverageRectangles(coverage.coveringGeohashes)
+      }
+    }
+
+    map.on('moveend', updateMapInfo)
+    map.on('zoomend', updateMapInfo)
+
     mapRef.current = map
     mapService.setMap(map)
 
+    // Initial update
+    updateMapInfo()
+
     return () => {
       if (mapRef.current) {
+        mapRef.current.off('moveend', updateMapInfo)
+        mapRef.current.off('zoomend', updateMapInfo)
         mapRef.current.remove()
         mapRef.current = null
         mapService.setMap(null)
@@ -286,13 +383,20 @@ export function MapView({
     rectanglesRef.current.forEach(rect => rect.remove())
     rectanglesRef.current.clear()
 
-    // Add markers for each location
+    // Get current map bounds for viewport filtering
+    const mapBounds = mapRef.current.getBounds()
+
+    // Add markers for each location (filter by viewport)
     locations.forEach(location => {
+      // Viewport filtering: only show markers in current view
+      if (!mapBounds.contains([location.lat, location.lng])) {
+        return // Skip markers outside viewport
+      }
       const decoded = decodeGeohash(location.event.geohash)
       if (!decoded) return
 
       // Create rectangle for geohash bounds
-      const bounds: L.LatLngBoundsExpression = [
+      const geohashBounds: L.LatLngBoundsExpression = [
         [decoded.bounds.minLat, decoded.bounds.minLng],
         [decoded.bounds.maxLat, decoded.bounds.maxLng]
       ]
@@ -314,7 +418,7 @@ export function MapView({
         markerIcon = createMarkerIcon('#9333ea', false)
       }
 
-      const rect = L.rectangle(bounds, {
+      const rect = L.rectangle(geohashBounds, {
         color: rectColor,
         weight: 1,
         opacity: 0.6,
@@ -521,6 +625,56 @@ export function MapView({
           zIndex: 1
         }}
       />
+
+      {/* Debug Info Panel */}
+      {showDebugInfo && mapCenter && (
+        <Box
+          position="fixed"
+          top="10px"
+          left="10px"
+          bg="white"
+          border="1px solid"
+          borderColor="gray.300"
+          borderRadius="md"
+          p={3}
+          shadow="md"
+          zIndex={1000}
+          fontSize="sm"
+          fontFamily="mono"
+          minW="200px"
+        >
+          <VStack align="start" spacing={1}>
+            <Text fontWeight="bold" color="blue.600">Debug Info</Text>
+            <HStack spacing={2}>
+              <Text>Zoom:</Text>
+              <Badge colorScheme="blue">{mapZoom.toFixed(1)}</Badge>
+            </HStack>
+            <VStack align="start" spacing={0}>
+              <Text>Center:</Text>
+              <Text fontSize="xs">
+                {mapCenter.lat.toFixed(6)}, {mapCenter.lng.toFixed(6)}
+              </Text>
+            </VStack>
+            <VStack align="start" spacing={0}>
+              <Text>Geohash:</Text>
+              <Text fontSize="xs" color="green.600" fontWeight="bold">
+                {centerGeohash}
+              </Text>
+            </VStack>
+            <VStack align="start" spacing={0}>
+              <Text>Coverage ({coverageGeohashes.length}):</Text>
+              {coverageGeohashes.map((gh, i) => (
+                <Text key={i} fontSize="xs" color="purple.600">
+                  {gh}
+                </Text>
+              ))}
+            </VStack>
+            <Text fontSize="xs" color="gray.500">
+              Markers: {locations.length} total
+            </Text>
+          </VStack>
+        </Box>
+      )}
 
       <ShareLocationPopup
         isOpen={showShareModal}

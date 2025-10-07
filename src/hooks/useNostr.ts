@@ -29,6 +29,8 @@ class NostrApplesauceService {
     // Listen for geohash settings changes
     window.addEventListener('geohash-settings-changed', () => {
       this.updateLocationSubscriptions()
+      // Also update map visibility immediately
+      mapService.updateLocations(this.locationEvents)
     })
   }
 

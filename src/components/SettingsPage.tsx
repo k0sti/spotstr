@@ -9,6 +9,7 @@ export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => vo
   const [simulateLocation, setSimulateLocation] = useState(false)
   const [fetchAllGeohashEvents, setFetchAllGeohashEvents] = useState(false)
   const [eventKindsList, setEventKindsList] = useState<string>('')
+  const [showDebugInfo, setShowDebugInfo] = useState(false)
 
   useEffect(() => {
     // Load simulate location setting
@@ -26,6 +27,11 @@ export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => vo
     const savedEventKinds = localStorage.getItem('spotstr_eventKindsList')
     if (savedEventKinds) {
       setEventKindsList(savedEventKinds)
+    }
+
+    const savedShowDebugInfo = localStorage.getItem('spotstr_showDebugInfo')
+    if (savedShowDebugInfo === 'true') {
+      setShowDebugInfo(true)
     }
   }, [])
 
@@ -191,19 +197,45 @@ export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => vo
         {/* Debug Settings */}
         <Box>
           <FormLabel>Debug Settings</FormLabel>
-          <HStack justify="space-between" p={3} bg="yellow.50" borderRadius="md">
-            <VStack align="start" spacing={0}>
-              <Text fontSize="sm" fontWeight="medium">Simulate Location</Text>
-              <Text fontSize="xs" color="gray.600">
-                Circular movement around Madeira (5km radius, 10m/s)
-              </Text>
-            </VStack>
-            <Switch
-              isChecked={simulateLocation}
-              onChange={(e) => handleSimulateToggle(e.target.checked)}
-              colorScheme="yellow"
-            />
-          </HStack>
+          <VStack spacing={3} align="stretch">
+            <HStack justify="space-between" p={3} bg="yellow.50" borderRadius="md">
+              <VStack align="start" spacing={0}>
+                <Text fontSize="sm" fontWeight="medium">Simulate Location</Text>
+                <Text fontSize="xs" color="gray.600">
+                  Circular movement around Madeira (5km radius, 10m/s)
+                </Text>
+              </VStack>
+              <Switch
+                isChecked={simulateLocation}
+                onChange={(e) => handleSimulateToggle(e.target.checked)}
+                colorScheme="yellow"
+              />
+            </HStack>
+
+            <HStack justify="space-between" p={3} bg="orange.50" borderRadius="md">
+              <VStack align="start" spacing={0}>
+                <Text fontSize="sm" fontWeight="medium">Show Debug Info</Text>
+                <Text fontSize="xs" color="gray.600">
+                  Display map center coordinates, geohash, and coverage rectangles
+                </Text>
+              </VStack>
+              <Switch
+                isChecked={showDebugInfo}
+                onChange={(e) => {
+                  const checked = e.target.checked
+                  setShowDebugInfo(checked)
+                  localStorage.setItem('spotstr_showDebugInfo', String(checked))
+                  toast({
+                    title: checked ? 'Debug info enabled' : 'Debug info disabled',
+                    status: 'info',
+                    duration: 2000,
+                  })
+                  window.dispatchEvent(new CustomEvent('debug-settings-changed'))
+                }}
+                colorScheme="orange"
+              />
+            </HStack>
+          </VStack>
         </Box>
 
 
