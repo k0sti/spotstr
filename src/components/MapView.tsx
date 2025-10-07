@@ -30,7 +30,7 @@ const createMarkerIcon = (color: string, glow: boolean = false) => L.divIcon({
 
 const publicIcon = createMarkerIcon('#2563eb')
 const privateIcon = createMarkerIcon('#dc2626')
-// const whiteGlowIcon = createMarkerIcon('#ffffff', true) // Reserved for future use
+const whiteGlowIcon = createMarkerIcon('#ffffff', true) // White with glow for new/updated
 
 // Helper function to create detailed popup content
 const createPopupContent = (location: MapLocation): string => {
@@ -189,6 +189,7 @@ export function MapView({
   const [showDebugInfo, setShowDebugInfo] = useState(false)
   const { colorMode } = useColorMode()
   const toast = useToast()
+  const previousLocationsMap = useRef<Map<string, { timestamp: number, geohash: string }>>(new Map())
 
   // Copy to clipboard with toast notification
   const copyToClipboard = async (text: string, label: string) => {
@@ -377,21 +378,96 @@ export function MapView({
   useEffect(() => {
     if (!mapRef.current) return
 
-    // Clear existing markers
-    markersRef.current.forEach(marker => marker.remove())
-    markersRef.current.clear()
-    rectanglesRef.current.forEach(rect => rect.remove())
-    rectanglesRef.current.clear()
+    // Create sets for efficient lookups
+    const currentLocationIds = new Set(locations.map(l => l.id))
+    const existingLocationIds = new Set(rectanglesRef.current.keys())
+
+    // Identify locations to remove, add, and update
+    const toRemove = new Set<string>()
+    const toAdd = new Set<string>()
+    const toUpdate = new Set<string>()
+
+    // Find locations to remove (no longer in current locations)
+    existingLocationIds.forEach(id => {
+      if (!currentLocationIds.has(id)) {
+        toRemove.add(id)
+      }
+    })
+
+    // Find locations to add or update
+    locations.forEach(location => {
+      const previousData = previousLocationsMap.current.get(location.id)
+
+      if (!existingLocationIds.has(location.id)) {
+        // New location
+        toAdd.add(location.id)
+      } else if (previousData &&
+                 (previousData.timestamp !== location.event.created_at ||
+                  previousData.geohash !== location.event.geohash)) {
+        // Updated location
+        toUpdate.add(location.id)
+      }
+    })
 
     // Get current map bounds for viewport filtering
     const mapBounds = mapRef.current.getBounds()
 
-    // Add markers for each location (filter by viewport)
-    locations.forEach(location => {
+    // Remove markers for deleted locations
+    toRemove.forEach(id => {
+      const rect = rectanglesRef.current.get(id)
+      if (rect) {
+        rect.remove()
+        if ((rect as any)._associatedMarker) {
+          (rect as any)._associatedMarker.remove()
+        }
+        if ((rect as any)._associatedCircle) {
+          (rect as any)._associatedCircle.remove()
+        }
+        rectanglesRef.current.delete(id)
+      }
+      markersRef.current.delete(id)
+    })
+
+    // Update existing markers that changed
+    toUpdate.forEach(id => {
+      const location = locations.find(l => l.id === id)
+      if (!location) return
+
+      const rect = rectanglesRef.current.get(id)
+      if (rect) {
+        // Check if popup is open before removing
+        const marker = (rect as any)._associatedMarker as L.Marker
+        const isPopupOpen = marker && marker.isPopupOpen()
+
+        // Remove old marker
+        rect.remove()
+        if ((rect as any)._associatedMarker) {
+          (rect as any)._associatedMarker.remove()
+        }
+        if ((rect as any)._associatedCircle) {
+          (rect as any)._associatedCircle.remove()
+        }
+        rectanglesRef.current.delete(id)
+        markersRef.current.delete(id)
+
+        // Add the updated marker (it will be added in the next section)
+        toAdd.add(id)
+
+        // Store popup state to restore later
+        if (isPopupOpen) {
+          (location as any)._restorePopup = true
+        }
+      }
+    })
+
+    // Add new markers and updated markers
+    const locationsToAdd = locations.filter(l => toAdd.has(l.id) || toUpdate.has(l.id))
+    locationsToAdd.forEach(location => {
       // Viewport filtering: only show markers in current view
       if (!mapBounds.contains([location.lat, location.lng])) {
         return // Skip markers outside viewport
       }
+
       const decoded = decodeGeohash(location.event.geohash)
       if (!decoded) return
 
@@ -403,19 +479,20 @@ export function MapView({
 
       const isPublic = location.event.eventKind === 30472
       const isPrivate = location.event.eventKind === 30473
+      const isNewOrUpdated = toAdd.has(location.id) || toUpdate.has(location.id)
 
       // Choose color based on event kind
       let rectColor: string
-      let markerIcon: L.DivIcon
+      let defaultIcon: L.DivIcon
       if (isPublic) {
         rectColor = '#2563eb' // blue for public location events
-        markerIcon = publicIcon
+        defaultIcon = publicIcon
       } else if (isPrivate) {
         rectColor = '#dc2626' // red for private location events
-        markerIcon = privateIcon
+        defaultIcon = privateIcon
       } else {
         rectColor = '#9333ea' // purple for other event kinds
-        markerIcon = createMarkerIcon('#9333ea', false)
+        defaultIcon = createMarkerIcon('#9333ea', false)
       }
 
       const rect = L.rectangle(geohashBounds, {
@@ -425,15 +502,31 @@ export function MapView({
         fillOpacity: 0.2
       }).addTo(mapRef.current!)
 
-      // Create center marker
+      // Create center marker - start with white glow if new or updated
       const marker = L.marker([decoded.lat, decoded.lng], {
-        icon: markerIcon
+        icon: isNewOrUpdated ? whiteGlowIcon : defaultIcon
       }).addTo(mapRef.current!)
 
       // Add detailed popup
       marker.bindPopup(createPopupContent(location))
 
+      // Animate from white to default color if new or updated location
+      if (isNewOrUpdated) {
+        setTimeout(() => {
+          if (marker) {
+            marker.setIcon(defaultIcon)
+          }
+        }, 200)
+      }
+
+      // Restore popup if it was open before update
+      if ((location as any)._restorePopup) {
+        marker.openPopup()
+        delete (location as any)._restorePopup
+      }
+
       // Add accuracy circle if accuracy is available
+      let accuracyCircle = null
       const accuracy = location.event.tags?.accuracy
       if (accuracy && typeof accuracy === 'number' && accuracy > 0) {
         let circleColor: string
@@ -444,7 +537,7 @@ export function MapView({
         } else {
           circleColor = '#a855f7' // purple-500 for other kinds
         }
-        L.circle([decoded.lat, decoded.lng], {
+        accuracyCircle = L.circle([decoded.lat, decoded.lng], {
           radius: accuracy, // radius in meters
           color: circleColor,
           weight: 1,
@@ -456,6 +549,21 @@ export function MapView({
 
       markersRef.current.set(location.id, marker)
       rectanglesRef.current.set(location.id, rect)
+
+      // Store marker and accuracy circle with rectangle so they're removed together
+      ;(rect as any)._associatedMarker = marker
+      if (accuracyCircle) {
+        ;(rect as any)._associatedCircle = accuracyCircle
+      }
+    })
+
+    // Update previous locations map for next comparison
+    previousLocationsMap.current.clear()
+    locations.forEach(location => {
+      previousLocationsMap.current.set(location.id, {
+        timestamp: location.event.created_at,
+        geohash: location.event.geohash
+      })
     })
   }, [locations])
 
@@ -596,18 +704,33 @@ export function MapView({
       if (!locationId || !mapRef.current) return
 
       const marker = markersRef.current.get(locationId)
-      if (marker) {
+      const rect = rectanglesRef.current.get(locationId)
+      if (marker && rect) {
         const latLng = marker.getLatLng()
         mapRef.current.setView(latLng, 18, {
           animate: true,
           duration: 0.5
         })
+
+        // Find the location to get its type for default color
+        const location = locations.find(l => l.id === locationId)
+        if (location) {
+          const isPublic = location.event.eventKind === 30472
+          const defaultColor = isPublic ? '#2563eb' : '#dc2626'
+
+          // Highlight the focused rectangle
+          rect.setStyle({ color: '#fbbf24', weight: 3 }) // yellow highlight
+          setTimeout(() => {
+            rect.setStyle({ color: defaultColor, weight: 1 })
+          }, 2000)
+        }
+
         marker.openPopup()
       }
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [locations])
 
   return (
     <>
