@@ -18,7 +18,7 @@ interface NavItem {
 }
 
 export function TopBar({ currentPage, onPageClick }: TopBarProps) {
-  const bgColor = useColorModeValue('rgba(255, 255, 255, 0.9)', 'rgba(26, 32, 44, 0.85)')
+  const bgColor = useColorModeValue('rgba(255, 255, 255, 0.2)', 'rgba(26, 32, 44, 0.5)')
   const textColor = useColorModeValue('gray.800', 'white')
   const borderColor = useColorModeValue('rgba(0, 0, 0, 0.1)', 'rgba(255, 255, 255, 0.1)')
   const buttonColor = useColorModeValue('gray.600', 'gray.300')
@@ -73,9 +73,6 @@ export function TopBar({ currentPage, onPageClick }: TopBarProps) {
             boxSize="32px"
             borderRadius="md"
           />
-          <Text fontSize="xl" fontWeight="bold" color={textColor}>
-            Spotstr
-          </Text>
         </HStack>
 
         <HStack spacing={0}>

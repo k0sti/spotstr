@@ -25,7 +25,7 @@ export function LocationBar({
   locationButtonColor,
   continuousSharingState
 }: LocationBarProps) {
-  const bgColor = useColorModeValue('rgba(255, 255, 255, 0.9)', 'rgba(26, 32, 44, 0.85)')
+  const bgColor = useColorModeValue('rgba(255, 255, 255, 0.2)', 'rgba(26, 32, 44, 0.5)')
   const borderColor = useColorModeValue('rgba(0, 0, 0, 0.1)', 'rgba(255, 255, 255, 0.1)')
   const inputBg = useColorModeValue('white', 'gray.700')
   const inputColor = useColorModeValue('gray.800', 'white')
