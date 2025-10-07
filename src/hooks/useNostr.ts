@@ -217,20 +217,23 @@ class NostrApplesauceService {
     const gTag = event.tags?.find((t: any) => t[0] === 'g')?.[1]
     console.log('Event g-tag:', gTag)
 
-    if (!gTag) {
-      console.log('Skipping event without g-tag:', event.id)
-      return
-    }
-
-    console.log('Event has g-tag, processing:', { kind: event.kind, gTag })
-
     if (event.kind === 30472) {
+      if (!gTag) {
+        console.log('Skipping public event without g-tag:', event.id)
+        return
+      }
       console.log('Processing as public location event')
       this.processPublicLocationEvent(event)
     } else if (event.kind === 30473) {
+      // Private events can be processed even without g-tag (geohash is encrypted in content)
       console.log('Processing as private location event')
       await this.processPrivateLocationEvent(event)
     } else {
+      // For other event kinds, require g-tag
+      if (!gTag) {
+        console.log('Skipping event without g-tag:', event.id)
+        return
+      }
       console.log('Processing as generic geohash event')
       // Process any other event kind with g-tag
       this.processGenericGeohashEvent(event)
