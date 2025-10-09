@@ -18,7 +18,7 @@ interface NavItem {
 }
 
 export function TopBar({ currentPage, onPageClick }: TopBarProps) {
-  const bgColor = useColorModeValue('rgba(255, 255, 255, 0.9)', 'rgba(26, 32, 44, 0.85)')
+  const bgColor = useColorModeValue('rgba(255, 255, 255, 0.2)', 'rgba(26, 32, 44, 0.5)')
   const textColor = useColorModeValue('gray.800', 'white')
   const borderColor = useColorModeValue('rgba(0, 0, 0, 0.1)', 'rgba(255, 255, 255, 0.1)')
   const buttonColor = useColorModeValue('gray.600', 'gray.300')
@@ -27,13 +27,20 @@ export function TopBar({ currentPage, onPageClick }: TopBarProps) {
   const relayService = useRelayService()
   const [locationRelaysConnected, setLocationRelaysConnected] = useState(false)
   const [profileRelaysConnected, setProfileRelaysConnected] = useState(false)
+  const [locationRelayCount, setLocationRelayCount] = useState({ connected: 0, total: 0 })
+  const [profileRelayCount, setProfileRelayCount] = useState({ connected: 0, total: 0 })
 
   useEffect(() => {
     const subscription = relayService.relayStatus$.subscribe(() => {
       const locationRelays = relayService.getConnectedRelays('location')
       const profileRelays = relayService.getConnectedRelays('profile')
+      const allLocationRelays = relayService.getRelayConfigs('location')
+      const allProfileRelays = relayService.getRelayConfigs('profile')
+
       setLocationRelaysConnected(locationRelays.length > 0)
       setProfileRelaysConnected(profileRelays.length > 0)
+      setLocationRelayCount({ connected: locationRelays.length, total: allLocationRelays.length })
+      setProfileRelayCount({ connected: profileRelays.length, total: allProfileRelays.length })
     })
 
     return () => subscription.unsubscribe()
@@ -73,9 +80,6 @@ export function TopBar({ currentPage, onPageClick }: TopBarProps) {
             boxSize="32px"
             borderRadius="md"
           />
-          <Text fontSize="xl" fontWeight="bold" color={textColor}>
-            Spotstr
-          </Text>
         </HStack>
 
         <HStack spacing={0}>
@@ -99,8 +103,12 @@ export function TopBar({ currentPage, onPageClick }: TopBarProps) {
             <Tooltip
               label={
                 <Box>
-                  <Text fontSize="xs">Location relays: {locationRelaysConnected ? 'Connected' : 'Disconnected'}</Text>
-                  <Text fontSize="xs">Profile relays: {profileRelaysConnected ? 'Connected' : 'Disconnected'}</Text>
+                  <Text fontSize="xs">
+                    Location relays: {locationRelayCount.connected}/{locationRelayCount.total} connected
+                  </Text>
+                  <Text fontSize="xs">
+                    Profile relays: {profileRelayCount.connected}/{profileRelayCount.total} connected
+                  </Text>
                 </Box>
               }
               placement="bottom"

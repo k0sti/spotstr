@@ -4,6 +4,7 @@ import { getGeolocationImplementation } from '../utils/locationSimulator';
 
 export class LocationService {
   private static watchId: string | null = null;
+  private static callbacks: Set<(position: Position | null) => void> = new Set();
 
   static async checkPermissions() {
     console.log('[LocationService] Checking permissions...');
@@ -111,10 +112,13 @@ export class LocationService {
   static async startWatching(callback: (position: Position | null) => void) {
     console.log('[LocationService] Starting location watch...');
 
-    // Check if already watching
+    // Add callback to the set
+    this.callbacks.add(callback);
+
+    // If already watching, just add the callback and return
     if (this.watchId !== null) {
-      console.log('[LocationService] Already watching with ID:', this.watchId, '- stopping previous watch first');
-      await this.stopWatching();
+      console.log('[LocationService] Already watching with ID:', this.watchId, '- adding callback to existing watch');
+      return;
     }
 
     if (!Capacitor.isNativePlatform()) {
@@ -137,14 +141,16 @@ export class LocationService {
         (position, error) => {
           if (error) {
             console.error('[LocationService] Watch error:', error);
-            callback(null);
+            // Notify all callbacks
+            this.callbacks.forEach(cb => cb(null));
           } else if (position) {
             console.log('[LocationService] Watch position update:', {
               latitude: position.coords.latitude,
               longitude: position.coords.longitude,
               accuracy: position.coords.accuracy
             });
-            callback(position);
+            // Notify all callbacks
+            this.callbacks.forEach(cb => cb(position));
           }
         }
       );
@@ -156,10 +162,13 @@ export class LocationService {
   }
 
   private static async startWebWatch(callback: (position: Position | null) => void) {
-    // Check if already watching - important for web too
+    // Add callback to the set
+    this.callbacks.add(callback);
+
+    // If already watching, just add the callback and return
     if (this.watchId !== null) {
-      console.log('[LocationService] Already watching (web) with ID:', this.watchId, '- stopping previous watch first');
-      await this.stopWatching();
+      console.log('[LocationService] Already watching (web) with ID:', this.watchId, '- adding callback to existing watch');
+      return;
     }
 
     const geolocation = getGeolocationImplementation();
@@ -184,11 +193,13 @@ export class LocationService {
           }
         };
         console.log('[LocationService] Web watch position update:', capacitorPosition);
-        callback(capacitorPosition);
+        // Notify all callbacks
+        this.callbacks.forEach(cb => cb(capacitorPosition));
       },
       (error) => {
         console.error('[LocationService] Web watch error:', error);
-        callback(null);
+        // Notify all callbacks
+        this.callbacks.forEach(cb => cb(null));
       },
       {
         enableHighAccuracy: true,
@@ -200,7 +211,21 @@ export class LocationService {
     console.log('[LocationService] Web watch started with ID:', this.watchId);
   }
 
-  static async stopWatching() {
+  static async stopWatching(callback?: (position: Position | null) => void) {
+    if (callback) {
+      // Remove specific callback
+      this.callbacks.delete(callback);
+      console.log('[LocationService] Removed callback, remaining:', this.callbacks.size);
+
+      // If there are still callbacks, don't stop the watch
+      if (this.callbacks.size > 0) {
+        return;
+      }
+    } else {
+      // Clear all callbacks
+      this.callbacks.clear();
+    }
+
     console.log('[LocationService] Stopping location watch with ID:', this.watchId);
 
     if (this.watchId) {

@@ -181,10 +181,29 @@ export function LocationsPage({ onClose: onPageClose }: LocationsPageProps = {})
           if (myNpubs.has(event.senderNpub)) {
             shared.push(event)
           }
+
           // Add to forMe if I'm the receiver (including self-shared)
           if (event.receiverNpub && myNpubs.has(event.receiverNpub)) {
             // Location is for me (sent to my identity or group)
             forMe.push(event)
+          }
+        }
+      }
+      // Other kinds with geohash
+      else {
+        // Check if this is a geohash event from other kinds
+        if (event.geohash && event.geohash !== 'encrypted') {
+          // Add to shared if I'm the sender
+          if (myNpubs.has(event.senderNpub)) {
+            shared.push(event)
+          }
+          // Add to forMe if I'm the receiver
+          if (event.receiverNpub && myNpubs.has(event.receiverNpub)) {
+            forMe.push(event)
+          }
+          // If no receiver, it's like a public event
+          if (!event.receiverNpub) {
+            publicEvents.push(event)
           }
         }
       }

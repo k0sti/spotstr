@@ -8,24 +8,20 @@ import {
   ModalCloseButton,
   ModalFooter,
   VStack,
-  HStack,
-  Input,
   Select,
   Button,
   Text,
   FormControl,
   FormLabel,
   useToast,
-  Box,
-  Tooltip,
-  IconButton
+  Box
 } from '@chakra-ui/react'
 import { useAccounts } from 'applesauce-react/hooks'
 import { useNostr } from '../hooks/useNostr'
 import { useGroups } from '../hooks/useGroups'
 import { useContacts } from '../hooks/useContacts'
-import { generateGeohash, npubToHex } from '../utils/crypto'
-import { LocationService } from '../services/locationService'
+import { useRelayService } from '../services/relayService'
+import { npubToHex } from '../utils/crypto'
 import { createLocationEvent, signAndPublishLocationEvent } from '../utils/locationEvents'
 import { continuousSharingService } from '../services/continuousSharingService'
 
@@ -39,26 +35,20 @@ interface ShareLocationPopupProps {
 export function ShareLocationPopup({
   isOpen,
   onClose,
-  initialGeohash = '',
   onStatusChange
 }: ShareLocationPopupProps) {
   const toast = useToast()
   const accounts = useAccounts()
-  const { publishLocationEvent, connectedRelays } = useNostr()
+  const { publishLocationEvent } = useNostr()
   const { groups } = useGroups()
   const { contacts } = useContacts()
+  const relayService = useRelayService()
 
-  const [geohash, setGeohash] = useState(initialGeohash)
   const [selectedSender, setSelectedSender] = useState('')
   const [selectedReceiver, setSelectedReceiver] = useState('')
   const [continuousSharingState, setContinuousSharingState] = useState(continuousSharingService.getCurrentState())
+  const [locationRelaysConnected, setLocationRelaysConnected] = useState(false)
 
-  // Set initial geohash when prop changes
-  useEffect(() => {
-    if (initialGeohash) {
-      setGeohash(initialGeohash)
-    }
-  }, [initialGeohash])
 
   // Set first identity as default sender
   useEffect(() => {
@@ -77,6 +67,16 @@ export function ShareLocationPopup({
       }
     }
   }, [groups, contacts, selectedReceiver])
+
+  // Subscribe to relay status
+  useEffect(() => {
+    const subscription = relayService.relayStatus$.subscribe(() => {
+      const connectedLocationRelays = relayService.getConnectedRelays('location')
+      setLocationRelaysConnected(connectedLocationRelays.length > 0)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [relayService])
 
   // Subscribe to continuous sharing state
   useEffect(() => {
@@ -97,8 +97,9 @@ export function ShareLocationPopup({
       throw new Error('Missing sender or receiver')
     }
 
-    if (connectedRelays.length === 0) {
-      throw new Error('No relays connected')
+    const connectedLocationRelays = relayService.getConnectedRelays('location')
+    if (connectedLocationRelays.length === 0) {
+      throw new Error('No location relays connected')
     }
 
     // Get sender account
@@ -143,7 +144,7 @@ export function ShareLocationPopup({
     const result = await signAndPublishLocationEvent(
       unsignedEvent,
       senderAccount.signer,
-      connectedRelays,
+      connectedLocationRelays,
       publishLocationEvent
     )
 
@@ -152,30 +153,6 @@ export function ShareLocationPopup({
     }
   }
 
-  const queryDeviceLocation = async () => {
-    console.log('[ShareLocationPopup] Querying device location...')
-
-    const position = await LocationService.getCurrentPosition()
-
-    if (position) {
-      const hash = generateGeohash(position.coords.latitude, position.coords.longitude, 8)
-      setGeohash(hash)
-
-      toast({
-        title: 'Location obtained',
-        status: 'success',
-        duration: 2000,
-      })
-    } else {
-      onStatusChange?.({ type: 'error', message: 'Failed to get location' })
-      toast({
-        title: 'Location error',
-        description: 'Failed to get location. Please check permissions.',
-        status: 'error',
-        duration: 3000,
-      })
-    }
-  }
 
 
   const handleStartSharing = async () => {
@@ -189,10 +166,10 @@ export function ShareLocationPopup({
       return
     }
 
-    if (connectedRelays.length === 0) {
+    if (!locationRelaysConnected) {
       toast({
-        title: 'No relays connected',
-        description: 'Please connect to at least one relay in Settings',
+        title: 'No location relays connected',
+        description: 'Please connect to at least one location relay in Settings',
         status: 'warning',
         duration: 3000,
       })
@@ -238,31 +215,10 @@ export function ShareLocationPopup({
     <Modal isOpen={isOpen} onClose={handleClose} size="md">
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader>Share Location (Real-time)</ModalHeader>
+        <ModalHeader>Share Your Location</ModalHeader>
         <ModalCloseButton />
         <ModalBody pb={6}>
           <VStack spacing={4} align="stretch">
-            <FormControl>
-              <FormLabel fontSize="sm">Location</FormLabel>
-              <HStack>
-                <Input
-                  placeholder="Geohash"
-                  value={geohash}
-                  onChange={(e) => setGeohash(e.target.value)}
-                  fontFamily="mono"
-                  size="sm"
-                />
-                <Tooltip label="Query device location">
-                  <IconButton
-                    aria-label="Query Location"
-                    icon={<span>📍</span>}
-                    size="sm"
-                    onClick={queryDeviceLocation}
-                    variant="outline"
-                  />
-                </Tooltip>
-              </HStack>
-            </FormControl>
 
             <FormControl>
               <FormLabel fontSize="sm">From</FormLabel>
@@ -333,10 +289,10 @@ export function ShareLocationPopup({
               </Box>
             )}
 
-            {connectedRelays.length === 0 && (
+            {!locationRelaysConnected && (
               <Box p={2} bg="orange.50" borderRadius="md">
                 <Text fontSize="sm" color="orange.800">
-                  Please connect to at least one relay in Settings
+                  Please connect to at least one location relay in Settings
                 </Text>
               </Box>
             )}
@@ -352,7 +308,7 @@ export function ShareLocationPopup({
               !selectedReceiver ||
               accounts.length === 0 ||
               (groups.length === 0 && contacts.length === 0) ||
-              connectedRelays.length === 0 ||
+              !locationRelaysConnected ||
               continuousSharingState.isSharing
             }
           >

@@ -28,8 +28,8 @@ const spin = keyframes`
 `
 
 const DEFAULT_LOCATION_RELAYS = [
-  'wss://precision.bilberry-tetra.ts.net/relay',
-  'wss://orangesync.tech'
+  'wss://blackbox.bilberry-tetra.ts.net/relay',
+  "ws://localhost:10547"
 ]
 
 const DEFAULT_PROFILE_RELAYS = [

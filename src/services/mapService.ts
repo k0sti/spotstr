@@ -15,9 +15,17 @@ export interface MapLocation {
   event: LocationEvent
 }
 
+export interface FocusOptions {
+  zoomLevel?: number
+  fitBounds?: boolean
+}
+
 class MapService {
   public locations$ = new BehaviorSubject<MapLocation[]>([])
-  public focusLocation$ = new BehaviorSubject<string | null>(null)
+  public focusLocation$ = new BehaviorSubject<{ id: string | null, options?: FocusOptions }>({
+    id: null,
+    options: undefined
+  })
   private focusedLocation$ = new BehaviorSubject<MapLocation | null>(null)
   private popupLocation$ = new BehaviorSubject<string | null>(null)
   // private mapInstance: any = null // Reserved for future use
@@ -41,18 +49,27 @@ class MapService {
   updateLocations(events: LocationEvent[]) {
     const mapLocations: MapLocation[] = []
 
+    // Check visibility settings
+    const fetchAllGeohashEvents = localStorage.getItem('spotstr_fetchAllGeohashEvents') === 'true'
+
     for (const event of events) {
       // Skip encrypted geohashes for now
       if (event.geohash && event.geohash !== 'encrypted') {
-        const decoded = decodeGeohash(event.geohash)
-        if (decoded) {
-          mapLocations.push({
-            id: event.id,
-            lat: decoded.lat,
-            lng: decoded.lng,
-            bounds: decoded.bounds,
-            event
-          })
+        // Filter based on visibility settings
+        const isLocationEvent = event.eventKind === 30472 || event.eventKind === 30473
+
+        // Show location events always, show other events only if setting is enabled
+        if (isLocationEvent || fetchAllGeohashEvents) {
+          const decoded = decodeGeohash(event.geohash)
+          if (decoded) {
+            mapLocations.push({
+              id: event.id,
+              lat: decoded.lat,
+              lng: decoded.lng,
+              bounds: decoded.bounds,
+              event
+            })
+          }
         }
       }
     }
@@ -61,12 +78,30 @@ class MapService {
   }
 
   // Focus map on specific location and open its popup
-  focusLocationAndOpenPopup(locationId: string) {
+  focusLocationAndOpenPopup(locationId: string, options?: FocusOptions) {
     const locations = this.locations$.value
     const location = locations.find(l => l.id === locationId)
     if (location) {
+      // Calculate zoom based on geohash if not provided
+      if (!options?.zoomLevel) {
+        const geohashLength = location.event.geohash.length
+        let zoomLevel = 18 // default
+
+        // Map geohash precision to zoom levels for proper visibility
+        if (geohashLength <= 1) zoomLevel = 2      // ~5000km
+        else if (geohashLength === 2) zoomLevel = 5  // ~625km
+        else if (geohashLength === 3) zoomLevel = 8  // ~78km
+        else if (geohashLength === 4) zoomLevel = 11 // ~20km
+        else if (geohashLength === 5) zoomLevel = 13 // ~2.4km
+        else if (geohashLength === 6) zoomLevel = 15 // ~610m
+        else if (geohashLength === 7) zoomLevel = 17 // ~76m
+        else if (geohashLength >= 8) zoomLevel = 18  // ~19m
+
+        options = { ...options, zoomLevel, fitBounds: true }
+      }
+
       this.focusedLocation$.next(location)
-      this.focusLocation$.next(locationId)  // Trigger the focus observable that MapView listens to
+      this.focusLocation$.next({ id: locationId, options })  // Trigger with options
       this.popupLocation$.next(locationId)
     }
   }
@@ -78,12 +113,12 @@ class MapService {
   }
 
   // Focus map on specific location
-  focusLocation(locationId: string) {
+  focusLocation(locationId: string, options?: FocusOptions) {
     const locations = this.locations$.value
     const location = locations.find(l => l.id === locationId)
     if (location) {
       this.focusedLocation$.next(location)
-      this.focusLocation$.next(locationId)
+      this.focusLocation$.next({ id: locationId, options })
     }
   }
 

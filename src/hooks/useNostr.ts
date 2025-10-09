@@ -17,6 +17,7 @@ class NostrApplesauceService {
   private relayService = getRelayService()
   private updateCallbacks: Set<() => void> = new Set()
   private locationSubscription: Subscription | null = null
+  private relayStatusSubscription: Subscription | null = null
   private newEncryptedEventCallbacks: Set<() => void> = new Set()
   private currentAccounts: any[] = []
   private pendingDecryptions: Set<string> = new Set()
@@ -25,6 +26,13 @@ class NostrApplesauceService {
     this.loadFromStorage()
     this.setupLocationSubscriptions()
     this.autoConnectSavedRelays()
+
+    // Listen for geohash settings changes
+    window.addEventListener('geohash-settings-changed', () => {
+      this.updateLocationSubscriptions()
+      // Also update map visibility immediately
+      mapService.updateLocations(this.locationEvents)
+    })
   }
 
 
@@ -60,15 +68,18 @@ class NostrApplesauceService {
 
   // Setup subscriptions to location relays
   private setupLocationSubscriptions() {
-    // Clean up existing subscription
+    // Clean up existing subscriptions
     if (this.locationSubscription) {
       this.locationSubscription.unsubscribe()
+    }
+    if (this.relayStatusSubscription) {
+      this.relayStatusSubscription.unsubscribe()
     }
 
     // Subscribe to relay status changes
     // Only update subscriptions when relay connections actually change
     let lastConnectedRelays: string[] = []
-    this.relayService.relayStatus$.subscribe(() => {
+    this.relayStatusSubscription = this.relayService.relayStatus$.subscribe(() => {
       const currentConnectedRelays = this.relayService.getConnectedRelays('location')
 
       // Only update if the connected relays have changed
@@ -96,16 +107,45 @@ class NostrApplesauceService {
       return
     }
 
-    // Create subscription for location events
-    const filter = {
-      kinds: [30472, 30473],
+    // Check geohash settings
+    const fetchAllGeohashEvents = localStorage.getItem('spotstr_fetchAllGeohashEvents') === 'true'
+    const eventKindsList = localStorage.getItem('spotstr_eventKindsList') || ''
+
+    console.log('Geohash settings:', { fetchAllGeohashEvents, eventKindsList })
+
+    // Build filter based on settings
+    let filter: any = {}
+
+    if (fetchAllGeohashEvents) {
+      if (eventKindsList.trim()) {
+        // Parse comma-separated list of kinds
+        const kinds = eventKindsList.split(',').map(k => parseInt(k.trim())).filter(k => !isNaN(k))
+        if (kinds.length > 0) {
+          filter.kinds = kinds
+        }
+        console.log('Using specific kinds:', kinds)
+      } else {
+        // For all kinds, we need to provide a large range or omit kinds filter entirely
+        // Most relays don't support fetching ALL kinds, so let's use a broad range
+        const commonKinds = [1, 6, 7, 30000, 30001, 30008, 30009, 30023, 30078, 30311, 30315, 30402, 30403, 30472, 30473]
+        filter.kinds = commonKinds
+        console.log('Fetching common event kinds with potential g-tags:', commonKinds)
+      }
+    } else {
+      // Default: only location events
+      filter.kinds = [30472, 30473]
+      console.log('Using default location event kinds:', filter.kinds)
     }
+
+    console.log('Subscription filter:', filter)
 
     this.locationSubscription = locationGroup
       .req([filter])
       .pipe(onlyEvents())
       .subscribe({
         next: (event: any) => {
+          console.log('Received event:', { kind: event.kind, id: event.id, tags: event.tags })
+
           // Track stats
           const relays = this.relayService.getConnectedRelays('location')
           if (relays.length > 0) {
@@ -120,7 +160,8 @@ class NostrApplesauceService {
         }
       })
 
-    console.log('Subscribed to location events from relay group')
+    const connectedRelays = this.relayService.getConnectedRelays('location')
+    console.log('Subscribed to location events from relay group, connected relays:', connectedRelays)
   }
 
   // Relay connection management (delegate to relay service)
@@ -174,10 +215,32 @@ class NostrApplesauceService {
   }
 
   private async processLocationEvent(event: any) {
+    console.log('Processing event:', { kind: event.kind, id: event.id })
+
+    // Check if event has g-tag
+    const gTag = event.tags?.find((t: any) => t[0] === 'g')?.[1]
+    console.log('Event g-tag:', gTag)
+
     if (event.kind === 30472) {
+      if (!gTag) {
+        console.log('Skipping public event without g-tag:', event.id)
+        return
+      }
+      console.log('Processing as public location event')
       this.processPublicLocationEvent(event)
     } else if (event.kind === 30473) {
+      // Private events can be processed even without g-tag (geohash is encrypted in content)
+      console.log('Processing as private location event')
       await this.processPrivateLocationEvent(event)
+    } else {
+      // For other event kinds, require g-tag
+      if (!gTag) {
+        console.log('Skipping event without g-tag:', event.id)
+        return
+      }
+      console.log('Processing as generic geohash event')
+      // Process any other event kind with g-tag
+      this.processGenericGeohashEvent(event)
     }
   }
 
@@ -248,6 +311,38 @@ class NostrApplesauceService {
 
     // Trigger decryption attempt notification
     this.notifyNewEncryptedEvent()
+  }
+
+  private processGenericGeohashEvent(event: any) {
+    const senderNpub = event.pubkey ? nip19.npubEncode(event.pubkey) : ''
+    const dTag = event.tags?.find((t: any) => t[0] === 'd')?.[1] || ''
+
+    // For addressable events (30000-39999), use addressable ID
+    // For regular events, just use event ID
+    const isAddressable = event.kind >= 30000 && event.kind <= 39999
+    const eventId = isAddressable ? `${event.kind}:${event.pubkey}:${dTag}` : event.id
+
+    // Extract all tags including geohash
+    const allTags = this.extractAllTags(event.tags)
+    const geohash = allTags.g || ''
+    const expiry = allTags.expiration
+
+    const locationEvent: LocationEvent = {
+      id: eventId,
+      eventId: event.id,
+      created_at: event.created_at,
+      senderNpub,
+      receiverNpub: undefined,
+      dTag: isAddressable ? dTag : undefined,
+      geohash,
+      expiry,
+      name: allTags.title || allTags.name || (isAddressable ? dTag : undefined),
+      eventKind: event.kind,
+      tags: allTags,
+      encryptedContent: undefined,
+    }
+
+    this.addLocationEvent(locationEvent)
   }
 
   private extractAllTags(tags: any[]): Record<string, any> {
@@ -500,6 +595,19 @@ class NostrApplesauceService {
     mapService.updateLocations([])
     this.notifyUpdate()
     console.log('Cleared all location events')
+  }
+
+  // Clean up subscriptions and resources
+  cleanup() {
+    if (this.locationSubscription) {
+      this.locationSubscription.unsubscribe()
+      this.locationSubscription = null
+    }
+    if (this.relayStatusSubscription) {
+      this.relayStatusSubscription.unsubscribe()
+      this.relayStatusSubscription = null
+    }
+    this.disconnectAll()
   }
 
   // Storage helpers
