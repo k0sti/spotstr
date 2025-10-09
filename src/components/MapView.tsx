@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Box, useColorMode, useToast, VStack, Text, HStack, Badge } from '@chakra-ui/react'
+import { Box, useColorMode, useToast, VStack, Text, HStack, Badge, Input } from '@chakra-ui/react'
 import L from 'leaflet'
 import { mapService, MapLocation } from '../services/mapService'
 import { generateGeohash, decodeGeohash } from '../utils/crypto'
 import { LocationService } from '../services/locationService'
 import { ShareLocationPopup } from './ShareLocationPopup'
-import { calculateGeohashCoverage, getGeohashBounds } from '../utils/geohashCoverage'
+import { calculateGeohashCoverage, getGeohashBounds, calculateMapAreaSize, calculateGeohashSize } from '../utils/geohashCoverage'
 
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css'
@@ -187,6 +187,8 @@ export function MapView({
   const [mapZoom, setMapZoom] = useState<number>(2)
   const [coverageGeohashes, setCoverageGeohashes] = useState<string[]>([])
   const [showDebugInfo, setShowDebugInfo] = useState(false)
+  const [coverageRatio, setCoverageRatio] = useState<number>(2)
+  const [currentPrecision, setCurrentPrecision] = useState<number>(1)
   const { colorMode } = useColorMode()
   const toast = useToast()
   const previousLocationsMap = useRef<Map<string, { timestamp: number, geohash: string }>>(new Map())
@@ -303,6 +305,22 @@ export function MapView({
     // Attribution moved to bottom right
     L.control.attribution({ position: 'bottomright' }).addTo(map)
 
+    mapRef.current = map
+    mapService.setMap(map)
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove()
+        mapRef.current = null
+        mapService.setMap(null)
+      }
+    }
+  }, [])
+
+  // Setup map event listeners (separate from map initialization)
+  useEffect(() => {
+    if (!mapRef.current) return
+
     // Track map movement and zoom
     const updateMapInfo = () => {
       if (!mapRef.current) return
@@ -313,22 +331,24 @@ export function MapView({
       setMapCenter({ lat: center.lat, lng: center.lng })
       setMapZoom(zoom)
 
+      // Calculate coverage geohashes with error handling
+      try {
+        const coverage = calculateGeohashCoverage(bounds, coverageRatio)
+        setCoverageGeohashes(coverage.coveringGeohashes)
+        setCurrentPrecision(coverage.precision)
 
-      // Calculate coverage geohashes
-      const coverage = calculateGeohashCoverage(bounds)
-      setCoverageGeohashes(coverage.coveringGeohashes)
-
-      // Update coverage rectangles if debug mode is on
-      if (localStorage.getItem('spotstr_showDebugInfo') === 'true') {
-        updateCoverageRectangles(coverage.coveringGeohashes)
+        // Update coverage rectangles if debug mode is on
+        if (localStorage.getItem('spotstr_showDebugInfo') === 'true') {
+          updateCoverageRectangles(coverage.coveringGeohashes)
+        }
+      } catch (error) {
+        console.error('[MapView] Error calculating geohash coverage:', error)
+        setCoverageGeohashes([])
       }
     }
 
-    map.on('moveend', updateMapInfo)
-    map.on('zoomend', updateMapInfo)
-
-    mapRef.current = map
-    mapService.setMap(map)
+    mapRef.current.on('moveend', updateMapInfo)
+    mapRef.current.on('zoomend', updateMapInfo)
 
     // Initial update
     updateMapInfo()
@@ -337,12 +357,9 @@ export function MapView({
       if (mapRef.current) {
         mapRef.current.off('moveend', updateMapInfo)
         mapRef.current.off('zoomend', updateMapInfo)
-        mapRef.current.remove()
-        mapRef.current = null
-        mapService.setMap(null)
       }
     }
-  }, [])
+  }, [coverageRatio, updateCoverageRectangles])
 
   // Update map tiles when color mode changes
   useEffect(() => {
@@ -364,6 +381,22 @@ export function MapView({
     mapRef.current.removeLayer(tileLayerRef.current)
     tileLayerRef.current = L.tileLayer(tileUrl, tileOptions).addTo(mapRef.current)
   }, [colorMode])
+
+  // Recalculate coverage when ratio changes
+  useEffect(() => {
+    if (!mapRef.current) return
+
+    const map = mapRef.current
+    const bounds = map.getBounds()
+    const coverage = calculateGeohashCoverage(bounds, coverageRatio)
+    setCoverageGeohashes(coverage.coveringGeohashes)
+    setCurrentPrecision(coverage.precision)
+
+    // Update coverage rectangles if debug mode is on
+    if (localStorage.getItem('spotstr_showDebugInfo') === 'true') {
+      updateCoverageRectangles(coverage.coveringGeohashes)
+    }
+  }, [coverageRatio, updateCoverageRectangles])
 
   // Subscribe to location updates from mapService
   useEffect(() => {
@@ -896,18 +929,87 @@ export function MapView({
           minW="200px"
         >
           <VStack align="start" spacing={1}>
-            <Text fontWeight="bold" color="blue.600">Debug Info</Text>
+            <Text fontWeight="bold" color="blue.600">Geohash Coverage</Text>
             <HStack spacing={2}>
               <Text>Zoom:</Text>
               <Badge colorScheme="blue">{mapZoom.toFixed(1)}</Badge>
             </HStack>
-            <VStack align="start" spacing={0}>
+            <VStack align="start" spacing={1}>
+              <Text fontSize="xs">Coverage ratio:</Text>
+              <Input
+                size="xs"
+                width="80px"
+                defaultValue={coverageRatio}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const value = parseFloat(e.currentTarget.value)
+                    if (!isNaN(value) && value > 0) {
+                      setCoverageRatio(value)
+                    }
+                  }
+                }}
+                onBlur={(e) => {
+                  const value = parseFloat(e.target.value)
+                  if (!isNaN(value) && value > 0) {
+                    setCoverageRatio(value)
+                  }
+                }}
+                fontSize="xs"
+                type="number"
+                step="0.05"
+              />
+            </VStack>
+            {mapCenter && mapRef.current && (
+              <VStack align="start" spacing={1}>
+                <Text fontSize="xs" fontWeight="bold" color="orange.600">Size Analysis:</Text>
+                <VStack align="start" spacing={0}>
+                  <Text fontSize="xs">
+                    Map area: {(() => {
+                      const bounds = mapRef.current!.getBounds()
+                      const area = calculateMapAreaSize(bounds)
+                      return `${area.latSize.toFixed(4)}° x ${area.lngSize.toFixed(4)}°`
+                    })()}
+                  </Text>
+                  <Text fontSize="xs">
+                    Geohash size (p{currentPrecision}): {(() => {
+                      const geohashArea = calculateGeohashSize(currentPrecision)
+                      return `${geohashArea.latSize.toFixed(4)}° x ${geohashArea.lngSize.toFixed(4)}°`
+                    })()}
+                  </Text>
+                  <Text fontSize="xs">
+                    Ratio: {(() => {
+                      const bounds = mapRef.current!.getBounds()
+                      const mapArea = calculateMapAreaSize(bounds)
+                      const geohashArea = calculateGeohashSize(currentPrecision)
+                      return `${(geohashArea.maxSize / mapArea.maxSize).toFixed(3)}`
+                    })()}
+                  </Text>
+                </VStack>
+              </VStack>
+            )}
+            <VStack align="start" spacing={1}>
               <Text>Coverage ({coverageGeohashes.length}):</Text>
-              {coverageGeohashes.map((gh, i) => (
-                <Text key={i} fontSize="xs" color="purple.600">
-                  {gh}
-                </Text>
-              ))}
+              <Box
+                display="flex"
+                flexWrap="wrap"
+                gap={1}
+                maxW="200px"
+              >
+                {coverageGeohashes.map((gh, i) => (
+                  <Text
+                    key={i}
+                    fontSize="xs"
+                    color="purple.600"
+                    fontFamily="mono"
+                    bg="purple.50"
+                    px={1}
+                    borderRadius="sm"
+                    whiteSpace="nowrap"
+                  >
+                    {gh}
+                  </Text>
+                ))}
+              </Box>
             </VStack>
             <Text fontSize="xs" color="gray.500">
               Markers: {locations.length} total

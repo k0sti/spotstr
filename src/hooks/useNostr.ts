@@ -17,6 +17,7 @@ class NostrApplesauceService {
   private relayService = getRelayService()
   private updateCallbacks: Set<() => void> = new Set()
   private locationSubscription: Subscription | null = null
+  private relayStatusSubscription: Subscription | null = null
   private newEncryptedEventCallbacks: Set<() => void> = new Set()
   private currentAccounts: any[] = []
   private pendingDecryptions: Set<string> = new Set()
@@ -67,15 +68,18 @@ class NostrApplesauceService {
 
   // Setup subscriptions to location relays
   private setupLocationSubscriptions() {
-    // Clean up existing subscription
+    // Clean up existing subscriptions
     if (this.locationSubscription) {
       this.locationSubscription.unsubscribe()
+    }
+    if (this.relayStatusSubscription) {
+      this.relayStatusSubscription.unsubscribe()
     }
 
     // Subscribe to relay status changes
     // Only update subscriptions when relay connections actually change
     let lastConnectedRelays: string[] = []
-    this.relayService.relayStatus$.subscribe(() => {
+    this.relayStatusSubscription = this.relayService.relayStatus$.subscribe(() => {
       const currentConnectedRelays = this.relayService.getConnectedRelays('location')
 
       // Only update if the connected relays have changed
@@ -591,6 +595,19 @@ class NostrApplesauceService {
     mapService.updateLocations([])
     this.notifyUpdate()
     console.log('Cleared all location events')
+  }
+
+  // Clean up subscriptions and resources
+  cleanup() {
+    if (this.locationSubscription) {
+      this.locationSubscription.unsubscribe()
+      this.locationSubscription = null
+    }
+    if (this.relayStatusSubscription) {
+      this.relayStatusSubscription.unsubscribe()
+      this.relayStatusSubscription = null
+    }
+    this.disconnectAll()
   }
 
   // Storage helpers

@@ -214,7 +214,7 @@ export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => vo
 
             <HStack justify="space-between" p={3} bg="orange.50" borderRadius="md">
               <VStack align="start" spacing={0}>
-                <Text fontSize="sm" fontWeight="medium">Show Debug Info</Text>
+                <Text fontSize="sm" fontWeight="medium">Show Geohash Coverage</Text>
                 <Text fontSize="xs" color="gray.600">
                   Display map center coordinates, geohash, and coverage rectangles
                 </Text>
@@ -226,7 +226,7 @@ export function SettingsPage({ onNavigate }: { onNavigate?: (page: string) => vo
                   setShowDebugInfo(checked)
                   localStorage.setItem('spotstr_showDebugInfo', String(checked))
                   toast({
-                    title: checked ? 'Debug info enabled' : 'Debug info disabled',
+                    title: checked ? 'Geohash coverage enabled' : 'Geohash coverage disabled',
                     status: 'info',
                     duration: 2000,
                   })

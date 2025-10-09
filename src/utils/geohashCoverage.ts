@@ -1,5 +1,39 @@
 import { generateGeohash, decodeGeohash } from './crypto'
 
+// Calculate map area size in degrees (returns max of lat/lng dimensions)
+export function calculateMapAreaSize(bounds: L.LatLngBounds): { latSize: number, lngSize: number, maxSize: number } {
+  const latSize = bounds.getNorth() - bounds.getSouth()
+  const lngSize = bounds.getEast() - bounds.getWest()
+  return {
+    latSize,
+    lngSize,
+    maxSize: Math.max(latSize, lngSize)
+  }
+}
+
+// Calculate geohash cell size in degrees for a given precision
+export function calculateGeohashSize(precision: number): { latSize: number, lngSize: number, maxSize: number } {
+  const latRange = 180.0 // Total latitude range (-90 to 90)
+  const lngRange = 360.0 // Total longitude range (-180 to 180)
+
+  // More precise bit allocation: geohash alternates lng/lat bits
+  const totalBits = precision * 5
+  const lngBits = Math.ceil(totalBits / 2)
+  const latBits = Math.floor(totalBits / 2)
+
+  const latDivisions = Math.pow(2, latBits)
+  const lngDivisions = Math.pow(2, lngBits)
+
+  const latSize = latRange / latDivisions
+  const lngSize = lngRange / lngDivisions
+
+  return {
+    latSize,
+    lngSize,
+    maxSize: Math.max(latSize, lngSize)
+  }
+}
+
 // Geohash precision to approximate area coverage
 // precision 1: ~5000km x 5000km
 // precision 2: ~1250km x 625km
@@ -46,18 +80,23 @@ export interface GeohashCoverage {
 // }
 
 // Calculate geohashes that cover the visible map area
-export function calculateGeohashCoverage(bounds: L.LatLngBounds): GeohashCoverage {
+export function calculateGeohashCoverage(bounds: L.LatLngBounds, coverageRatio: number): GeohashCoverage {
   const center = bounds.getCenter()
+
+  // Calculate screen/viewport dimensions
+  const mapArea = calculateMapAreaSize(bounds)
 
   // Start with precision 1 and find optimal level
   let precision = 1
 
-  // Find the right precision level where top-left and bottom-right differ
+  // Find the right precision level where geohash is appropriately sized
+  // We want each geohash to be about coverageRatio times the size of the visible area
   while (precision < 12) {
-    const topLeft = generateGeohash(bounds.getNorth(), bounds.getWest(), precision)
-    const bottomRight = generateGeohash(bounds.getSouth(), bounds.getEast(), precision)
+    const geohashArea = calculateGeohashSize(precision)
 
-    if (topLeft !== bottomRight) {
+    // Stop when geohash is small enough to give reasonable coverage
+    // but not so small that we get too many geohashes
+    if (geohashArea.maxSize <= mapArea.maxSize * coverageRatio) {
       break
     }
     precision++
