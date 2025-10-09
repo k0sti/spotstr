@@ -17,22 +17,6 @@ export interface GeohashCoverage {
   precision: number
 }
 
-// Get optimal geohash precision for given bounds
-function getOptimalPrecision(bounds: L.LatLngBounds): number {
-  const latDiff = Math.abs(bounds.getNorth() - bounds.getSouth())
-  const lngDiff = Math.abs(bounds.getEast() - bounds.getWest())
-  const maxDiff = Math.max(latDiff, lngDiff)
-
-  // Choose precision based on the maximum dimension
-  if (maxDiff > 10) return 1      // > 10 degrees
-  if (maxDiff > 2) return 2       // > 2 degrees
-  if (maxDiff > 0.5) return 3     // > 0.5 degrees
-  if (maxDiff > 0.1) return 4     // > 0.1 degrees
-  if (maxDiff > 0.02) return 5    // > 0.02 degrees
-  if (maxDiff > 0.005) return 6   // > 0.005 degrees
-  if (maxDiff > 0.001) return 7   // > 0.001 degrees
-  return 8                        // Very zoomed in
-}
 
 // Base32 characters used in geohash (for future use)
 // const BASE32 = '0123456789bcdefghjkmnpqrstuvwxyz'
@@ -64,24 +48,99 @@ function getOptimalPrecision(bounds: L.LatLngBounds): number {
 // Calculate geohashes that cover the visible map area
 export function calculateGeohashCoverage(bounds: L.LatLngBounds): GeohashCoverage {
   const center = bounds.getCenter()
-  const precision = getOptimalPrecision(bounds)
 
+  // Start with precision 1 and find optimal level
+  let precision = 1
+
+  // Find the right precision level where top-left and bottom-right differ
+  while (precision < 12) {
+    const topLeft = generateGeohash(bounds.getNorth(), bounds.getWest(), precision)
+    const bottomRight = generateGeohash(bounds.getSouth(), bounds.getEast(), precision)
+
+    if (topLeft !== bottomRight) {
+      break
+    }
+    precision++
+  }
+
+  // Generate all geohashes that cover the visible area
+  const coveringGeohashes = getAllGeohashesInBounds(bounds, precision)
   const centerGeohash = generateGeohash(center.lat, center.lng, precision)
-
-  // Calculate 4 corner geohashes that together cover the bounds
-  const nw = generateGeohash(bounds.getNorth(), bounds.getWest(), precision)
-  const ne = generateGeohash(bounds.getNorth(), bounds.getEast(), precision)
-  const sw = generateGeohash(bounds.getSouth(), bounds.getWest(), precision)
-  const se = generateGeohash(bounds.getSouth(), bounds.getEast(), precision)
-
-  // Return unique geohashes that cover the area
-  const uniqueCorners = Array.from(new Set([nw, ne, sw, se]))
 
   return {
     centerGeohash,
-    coveringGeohashes: uniqueCorners,
+    coveringGeohashes,
     precision
   }
+}
+
+// Get all geohashes that cover the given bounds at specified precision
+function getAllGeohashesInBounds(bounds: L.LatLngBounds, precision: number): string[] {
+  const geohashes = new Set<string>()
+
+  // Calculate exact geohash cell dimensions at this precision
+  // Each precision level divides the lat/lng ranges by powers of 2
+  const latRange = 180.0 // Total latitude range (-90 to 90)
+  const lngRange = 360.0 // Total longitude range (-180 to 180)
+
+  // Each geohash character encodes 5 bits: ~2.5 bits lat, ~2.5 bits lng
+  // So precision N gives us roughly 2^(2.5*N) divisions in each direction
+  const latDivisions = Math.pow(2, Math.floor(precision * 2.5))
+  const lngDivisions = Math.pow(2, Math.ceil(precision * 2.5))
+
+  const latStep = latRange / latDivisions
+  const lngStep = lngRange / lngDivisions
+
+  // Get bounds
+  const north = bounds.getNorth()
+  const south = bounds.getSouth()
+  const west = bounds.getWest()
+  const east = bounds.getEast()
+
+  // Find the grid boundaries that could intersect our bounds
+  // Expand to include partial grid cells
+  const minLat = Math.floor((south + 90) / latStep) * latStep - 90
+  const maxLat = Math.ceil((north + 90) / latStep) * latStep - 90
+  const minLng = Math.floor((west + 180) / lngStep) * lngStep - 180
+  const maxLng = Math.ceil((east + 180) / lngStep) * lngStep - 180
+
+  // Generate all geohashes in the grid that could intersect
+  for (let lat = minLat; lat <= maxLat; lat += latStep) {
+    for (let lng = minLng; lng <= maxLng; lng += lngStep) {
+      // Generate geohash for this grid point
+      const geohash = generateGeohash(lat, lng, precision)
+
+      // Decode the geohash to get its exact bounds
+      const decoded = decodeGeohash(geohash)
+      if (!decoded) continue
+
+      // Check if this geohash cell intersects with our target bounds
+      const ghBounds = decoded.bounds
+      const intersects = !(
+        ghBounds.maxLat < south ||
+        ghBounds.minLat > north ||
+        ghBounds.maxLng < west ||
+        ghBounds.minLng > east
+      )
+
+      if (intersects) {
+        geohashes.add(geohash)
+      }
+    }
+  }
+
+  // Fallback: if no geohashes found, use corner method
+  if (geohashes.size === 0) {
+    const corners = [
+      generateGeohash(north, west, precision),
+      generateGeohash(north, east, precision),
+      generateGeohash(south, west, precision),
+      generateGeohash(south, east, precision)
+    ]
+    corners.forEach(gh => geohashes.add(gh))
+  }
+
+  return Array.from(geohashes)
 }
 
 // Get bounds for a geohash (for drawing rectangles)

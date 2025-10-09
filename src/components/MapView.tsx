@@ -185,7 +185,6 @@ export function MapView({
   const isFirstLocationUpdateRef = useRef<boolean>(true)
   const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number } | null>(null)
   const [mapZoom, setMapZoom] = useState<number>(2)
-  const [centerGeohash, setCenterGeohash] = useState<string>('')
   const [coverageGeohashes, setCoverageGeohashes] = useState<string[]>([])
   const [showDebugInfo, setShowDebugInfo] = useState(false)
   const { colorMode } = useColorMode()
@@ -314,9 +313,6 @@ export function MapView({
       setMapCenter({ lat: center.lat, lng: center.lng })
       setMapZoom(zoom)
 
-      // Calculate center geohash
-      const centerGh = generateGeohash(center.lat, center.lng, Math.min(Math.max(Math.floor(zoom / 2), 3), 8))
-      setCenterGeohash(centerGh)
 
       // Calculate coverage geohashes
       const coverage = calculateGeohashCoverage(bounds)
@@ -886,7 +882,7 @@ export function MapView({
       {showDebugInfo && mapCenter && (
         <Box
           position="fixed"
-          top="10px"
+          top="80px"
           left="10px"
           bg="white"
           border="1px solid"
@@ -905,18 +901,6 @@ export function MapView({
               <Text>Zoom:</Text>
               <Badge colorScheme="blue">{mapZoom.toFixed(1)}</Badge>
             </HStack>
-            <VStack align="start" spacing={0}>
-              <Text>Center:</Text>
-              <Text fontSize="xs">
-                {mapCenter.lat.toFixed(6)}, {mapCenter.lng.toFixed(6)}
-              </Text>
-            </VStack>
-            <VStack align="start" spacing={0}>
-              <Text>Geohash:</Text>
-              <Text fontSize="xs" color="green.600" fontWeight="bold">
-                {centerGeohash}
-              </Text>
-            </VStack>
             <VStack align="start" spacing={0}>
               <Text>Coverage ({coverageGeohashes.length}):</Text>
               {coverageGeohashes.map((gh, i) => (
